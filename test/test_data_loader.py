@@ -7,6 +7,8 @@
 """
 import json
 
+from torch.utils.data import DataLoader
+
 from utils.data_loader import get_train_datalist, SpeechDataset
 from configuration import config
 import pandas as pd
@@ -14,4 +16,12 @@ import pandas as pd
 args = config.base_parser()
 train_list = get_train_datalist(args, cur_iter=0)
 
-dataset = SpeechDataset(data_frame=train_list,dataset=)
+train_dataset = SpeechDataset(data_frame=pd.DataFrame(train_list), dataset='gsc')
+# drop last becasue of BatchNorm1D in IcarlNet
+train_loader = DataLoader(
+    train_dataset,
+    shuffle=True,
+    batch_size=16,
+    num_workers=8,
+    drop_last=True,
+)
