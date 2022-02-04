@@ -10,7 +10,8 @@ import argparse
 
 def base_parser():
     parser = argparse.ArgumentParser(description="Class Incremental Learning Research")
-
+    # Data root.
+    parser.add_argument("--data_root", type=str, default='/home/xiaoyang/Dev/kws-efficient-cl/dataset/collection')
     # Mode and Exp. Settings.
     parser.add_argument(
         "--mode",
@@ -22,7 +23,7 @@ def base_parser():
         "--mem_manage",
         type=str,
         default=None,
-        help="memory management [default, random, reservoir, uncertainty, prototype]",
+        help="memory management [default, random,uncertainty]",
     )
     parser.add_argument(
         "--dataset",
@@ -32,7 +33,7 @@ def base_parser():
     )
     parser.add_argument("--n_tasks", type=int, default="5", help="The number of tasks")
     parser.add_argument(
-        "--n_cls_a_task", type=int, default=2, help="The number of class of each task"
+        "--n_cls_a_task", type=int, default=6, help="The number of class of each task"
     )
     parser.add_argument(
         "--n_init_cls",
@@ -40,7 +41,7 @@ def base_parser():
         default=15,
         help="The number of classes of initial task",
     )
-    parser.add_argument("--rnd_seed", type=int, default=1,help="Random seed number.")
+    parser.add_argument("--rnd_seed", type=int, default=1, help="Random seed number.")
     parser.add_argument(
         "--memory_size", type=int, default=500, help="Episodic memory size"
     )
@@ -128,12 +129,12 @@ def base_parser():
         help="Feature size when embedding a sample",
     )
 
-    # BiC
-    parser.add_argument(
-        "--distilling",
-        action="store_true",
-        help="use distilling loss with classification",
-    )
+    # # BiC
+    # parser.add_argument(
+    #     "--distilling",
+    #     action="store_true",
+    #     help="use distilling loss with classification",
+    # )
 
     # Regularization
     parser.add_argument(
