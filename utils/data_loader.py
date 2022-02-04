@@ -38,7 +38,7 @@ class SpeechDataset(Dataset):
         return len(self.data_frame)
 
     def load_audio(self, speech_path):
-        waveform, sr = torchaudio.load(speech_path)
+        waveform, sample_rate = torchaudio.load(speech_path)
         if waveform.shape[1] < self.sample_length:
             # padding if the audio length is smaller than samping length.
             waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
@@ -83,7 +83,7 @@ def get_train_datalist(args, cur_iter: int) -> List:
                 iter=cur_iter_,
             )
             datalist += pd.read_json(
-                f"collections/{args.dataset}/{collection_name}.json"
+                os.path.join(args.data_root, f"{collection_name}.json")
             ).to_dict(orient="records")
             logger.info(f"[Train] Get datalist from {collection_name}.json")
     else:
@@ -95,9 +95,8 @@ def get_train_datalist(args, cur_iter: int) -> List:
             iter=cur_iter,
         )
 
-        datalist = pd.read_json(
-            f"collections/{args.dataset}/{collection_name}.json"
-        ).to_dict(orient="records")
+        datalist = pd.read_json(os.path.join(args.data_root, f"{collection_name}.json")
+                                ).to_dict(orient="records")
         logger.info(f"[Train] Get datalist from {collection_name}.json")
 
     return datalist
@@ -114,10 +113,7 @@ def get_test_datalist(args, exp_name: str, cur_iter: int) -> List:
     if exp_name is None:
         exp_name = args.exp_name
 
-    if exp_name in ["joint", "blurry10", "blurry30"]:
-        # merge over all tasks
-        tasks = list(range(args.n_tasks))
-    elif exp_name == "disjoint":
+    if exp_name == "disjoint":
         # merge current and all previous tasks
         tasks = list(range(cur_iter + 1))
     else:
@@ -129,7 +125,7 @@ def get_test_datalist(args, exp_name: str, cur_iter: int) -> List:
             dataset=args.dataset, rnd=args.rnd_seed, n_cls=args.n_cls_a_task, iter=iter_
         )
         datalist += pd.read_json(
-            f"collections/{args.dataset}/{collection_name}.json"
+            f"dataset/collection/{collection_name}.json"
         ).to_dict(orient="records")
         logger.info(f"[Test ] Get datalist from {collection_name}.json")
 

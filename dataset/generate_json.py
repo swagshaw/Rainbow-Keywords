@@ -17,35 +17,39 @@ def main():
     parser.add_argument("--dpath", default="./", type=str, help="The path of dataset")
     parser.add_argument("--seed", type=int, default=1, help="Random seed number.")
     parser.add_argument("--dataset", type=str, default="gsc", help="[gsc]")
-    parser.add_argument("--n_tasks", type=int, default="5", help="The number of tasks")
-    parser.add_argument("--n_cls", type=int, default=6, help="The number of class of each task")
+    parser.add_argument("--n_tasks", type=int, default="6", help="The number of tasks")
+    parser.add_argument("--n_cls", type=int, default=3, help="The number of class of each task")
     parser.add_argument("--exp_name", type=str, default="disjoint", help="[disjoint, blurry]")
     parser.add_argument("--mode", type=str, default="test", help="[train, test]")
     args = parser.parse_args()
     data_path = args.dpath
 
     if args.seed == 1:
-        class_list_0 = ["four", "stop", "go", "dog", "cat", "five"]
-        class_list_1 = ["three", "bed", "up", "tree", "one", "eight"]
-        class_list_2 = ["down", "wow", "happy", "left", "right", "bird"]
-        class_list_3 = ["yes", "no", "nine", "seven", "six", "two"]
-        class_list_4 = ["marvin", "on", "sheila", "off", "house", "zero"]
-    elif args.seed == 2:
-        class_list_0 = ["four", "marvin", "on", "sheila", "cat", "five"]
-        class_list_1 = ["three", "stop", "go", "dog", "one", "eight"]
-        class_list_2 = ["down", "no", "nine", "bed", "wow", "happy"]
-        class_list_3 = ["yes", "up", "tree", "seven", "six", "two"]
-        class_list_4 = ["off", "house", "zero", "left", "right", "bird"]
+        class_list_0 = ["four", "stop", "go", "dog", "cat", "five", "left", "right", "bird", "tree", "one", "eight",
+                        "seven", "six", "two"]
+        class_list_1 = ["three", "bed", "up"]
+        class_list_2 = ["down", "wow", "happy"]
+        class_list_3 = ["yes", "no", "nine"]
+        class_list_4 = ["marvin", "on", "sheila"]
+        class_list_5 = ["off", "house", "zero"]
+    # elif args.seed == 2:
+    #     class_list_0 = ["four", "marvin", "on", "sheila", "cat", "five"]
+    #     class_list_1 = ["three", "stop", "go", "dog", "one", "eight"]
+    #     class_list_2 = ["down", "no", "nine", "bed", "wow", "happy"]
+    #     class_list_3 = ["yes", "up", "tree", "seven", "six", "two"]
+    #     class_list_4 = ["off", "house", "zero", "left", "right", "bird"]
 
     else:
-        class_list_0 = ["seven", "six", "two", "sheila", "cat", "five"]
-        class_list_1 = ["stop", "go", "dog", "no", "one", "eight"]
-        class_list_2 = ["off", "house", "bed", "wow", "marvin", "happy"]
-        class_list_3 = ["four", "on", "yes", "up", "tree", "three"]
-        class_list_4 = ["zero", "left", "right", "down", "nine", "bird"]
+        class_list_0 = ["seven", "six", "two", "sheila", "cat", "five", "no", "one", "eight", "wow", "marvin", "happy",
+                        "up", "tree", "three"]
+        class_list_1 = ["stop", "go", "dog"]
+        class_list_2 = ["off", "house", "bed"]
+        class_list_3 = ["four", "on", "yes"]
+        class_list_4 = ["zero", "left", "right"]
+        class_list_5 = ["down", "nine", "bird"]
     train_filename = readlines(f"{data_path}/splits/train.txt")
     valid_filename = readlines(f"{data_path}/splits/valid.txt")
-    total_list = [class_list_0, class_list_1, class_list_2, class_list_3, class_list_4]
+    total_list = [class_list_0, class_list_1, class_list_2, class_list_3, class_list_4, class_list_5]
 
     for i in range(len(total_list)):
         class_list = total_list[i]
@@ -67,7 +71,7 @@ def main():
             if category in class_list:
                 path = os.path.join(data_path, category, wave_name)
                 dataset_list.append([path, category, class_encoding.get(category)])
-        res = [{"klass": item[1], "file_name": item[0], "label": item[2]} for item in dataset_list]
+        res = [{"class": item[1], "file_name": item[0], "label": item[2]} for item in dataset_list]
         print(len(res))
         f.write(json.dumps(res))
         f.close()

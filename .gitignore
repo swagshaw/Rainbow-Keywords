@@ -149,3 +149,5 @@ model_save
 # log files
 *.txt
 
+#dataset
+collections
