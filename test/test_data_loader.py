@@ -14,3 +14,4 @@ import pandas as pd
 args = config.base_parser()
 train_list = get_train_datalist(args, cur_iter=0)
 
+dataset = SpeechDataset(data_frame=train_list,dataset=)
