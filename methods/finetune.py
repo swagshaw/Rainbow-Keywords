@@ -10,7 +10,6 @@ import logging
 
 import random
 
-
 import numpy as np
 import pandas as pd
 import torch
@@ -23,24 +22,9 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.data_loader import cutmix_data
 from utils.train_utils import select_model, select_optimizer
 from utils.data_loader import SpeechDataset
+
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
-
-
-class ICaRLNet(nn.Module):
-    def __init__(self, model, feature_size, n_class):
-        super().__init__()
-        self.model = model
-        self.bn = nn.BatchNorm1d(feature_size, momentum=0.01)
-        self.ReLU = nn.ReLU()
-        self.fc = nn.Linear(feature_size, n_class, bias=False)
-
-    def forward(self, x):
-        x = self.model(x)
-        x = self.bn(x)
-        x = self.ReLU(x)
-        x = self.fc(x)
-        return x
 
 
 class Finetune:
@@ -73,18 +57,13 @@ class Finetune:
         self.memory_list = []
         self.memory_size = kwargs["memory_size"]
         self.mem_manage = kwargs["mem_manage"]
-        if kwargs["mem_manage"] == "default":
-            self.mem_manage = "random"
 
         self.model = select_model(self.model_name, kwargs["n_init_cls"])
         self.model = self.model.to(self.device)
         self.criterion = self.criterion.to(self.device)
 
         self.already_mem_update = False
-
         self.mode = kwargs["mode"]
-
-        self.uncert_metric = kwargs["uncert_metric"]
 
     def set_current_dataset(self, train_datalist, test_datalist):
         random.shuffle(train_datalist)
@@ -100,13 +79,6 @@ class Finetune:
             len(self.exposed_classes), self.num_learning_class
         )
 
-        # if self.mem_manage == "prototype":
-        #     self.model.fc = nn.Linear(self.model.fc.in_features, self.feature_size)
-        #     self.feature_extractor = self.model
-        #     self.model = ICaRLNet(
-        #         self.feature_extractor, self.feature_size, self.num_learning_class
-        #     )
-
         in_features = self.model.tc_resnet.channels[-1]
         out_features = self.model.tc_resnet.out_features
         # To care the case of decreasing head
@@ -114,14 +86,10 @@ class Finetune:
         if init_model:
             # init model parameters in every iteration
             logger.info("Reset model parameters")
-            self.model = select_model(self.model_name, self.dataset)
+            self.model = select_model(self.model_name, incoming_classes)
         else:
             self.model.fc = nn.Linear(in_features, new_out_features)
-        self.params = {
-            n: p for n, p in list(self.model.named_parameters())[:-2] if p.requires_grad
-        }  # For regularzation methods
         self.model = self.model.to(self.device)
-
         if init_opt:
             # reinitialize the optimizer and scheduler
             logger.info("Reset the optimizer and scheduler states")
@@ -163,6 +131,8 @@ class Finetune:
                             candidates,
                             num_class=num_class,
                         )
+                elif self.mem_manage == "default":
+                    self.memory_list = []
                 else:
                     logger.error("Not implemented memory management")
                     raise NotImplementedError
@@ -249,13 +219,13 @@ class Finetune:
                 test_loader=test_loader, criterion=self.criterion
             )
 
-            # writer.add_scalar(f"task{cur_iter}/train/loss", train_loss, epoch)
-            # writer.add_scalar(f"task{cur_iter}/train/acc", train_acc, epoch)
-            # writer.add_scalar(f"task{cur_iter}/test/loss", eval_dict["avg_loss"], epoch)
-            # writer.add_scalar(f"task{cur_iter}/test/acc", eval_dict["avg_acc"], epoch)
-            # writer.add_scalar(
-            #     f"task{cur_iter}/train/lr", self.optimizer.param_groups[0]["lr"], epoch
-            # )
+            writer.add_scalar(f"task{cur_iter}/train/loss", train_loss, epoch)
+            writer.add_scalar(f"task{cur_iter}/train/acc", train_acc, epoch)
+            writer.add_scalar(f"task{cur_iter}/test/loss", eval_dict["avg_loss"], epoch)
+            writer.add_scalar(f"task{cur_iter}/test/acc", eval_dict["avg_acc"], epoch)
+            writer.add_scalar(
+                f"task{cur_iter}/train/lr", self.optimizer.param_groups[0]["lr"], epoch
+            )
 
             logger.info(
                 f"Task {cur_iter} | Epoch {epoch + 1}/{n_epoch} | train_loss {train_loss:.4f} | train_acc {train_acc:.4f} | "
@@ -272,7 +242,7 @@ class Finetune:
     ):
         total_loss, correct, num_data = 0.0, 0.0, 0.0
         self.model.train()
-        for i, data in enumerate(tqdm.tqdm(train_loader)):
+        for i, data in enumerate(train_loader):
             for pass_ in range(n_passes):
                 x = data["waveform"]
                 y = data["label"]

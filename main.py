@@ -9,11 +9,13 @@ import logging
 import logging.config
 import os
 import random
+import time
 from collections import defaultdict
 
 import numpy as np
 import torch
 from torch import nn
+from torch.utils.tensorboard import SummaryWriter
 
 from configuration import config
 from utils.data_loader import get_train_datalist, get_test_datalist
@@ -36,6 +38,9 @@ def main():
     )
     fileHandler.setFormatter(formatter)
     logger.addHandler(fileHandler)
+
+    writer = SummaryWriter("tensorboard")
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
     else:
@@ -57,7 +62,7 @@ def main():
 
     logger.info(f"[2] Incrementally training {args.n_tasks} tasks")
     task_records = defaultdict(list)
-
+    start_time = time.time()
     # start to train each tasks
     for cur_iter in range(args.n_tasks):
         print("\n" + "#" * 50)
@@ -98,10 +103,16 @@ def main():
         task_records["task_acc"].append(task_acc)
         # task_records['cls_acc'][k][j] = break down j-class accuracy from 'task_acc'
         task_records["cls_acc"].append(eval_dict["cls_acc"])
-
+        if cur_iter > 0:
+            task_records["bwt_list"].append(np.mean(
+                [task_records["task_acc"][i + 1] - task_records["task_acc"][i] for i in
+                 range(len(task_records["task_acc"]) - 1)]))
         # Notify to NSML
         logger.info("[2-5] Report task result")
+        writer.add_scalar("Metrics/TaskAcc", task_acc, cur_iter)
     np.save(f"results/{save_path}.npy", task_records["task_acc"])
+    # Total time (T)
+    duration = time.time() - start_time
 
     # Accuracy (A)
     A_avg = np.mean(task_records["task_acc"])
@@ -125,7 +136,10 @@ def main():
     I_last = args.joint_acc - A_last
 
     logger.info(f"======== Summary =======")
+    logger.info(f"Total time {duration}, Avg: {duration / args.n_tasks}s")
+    logger.info(f'BWT: {np.mean(task_records["bwt_list"])}, std: {np.std(task_records["bwt_list"])}')
     logger.info(f"A_last {A_last} | A_avg {A_avg} | F_last {F_last} | I_last {I_last}")
+
 
 if __name__ == "__main__":
     main()

@@ -31,7 +31,7 @@ def base_parser():
         default="gsc",
         help="[gsc]",
     )
-    parser.add_argument("--n_tasks", type=int, default="5", help="The number of tasks")
+    parser.add_argument("--n_tasks", type=int, default="6", help="The number of tasks")
     parser.add_argument(
         "--n_cls_a_task", type=int, default=3, help="The number of class of each task"
     )
@@ -71,11 +71,11 @@ def base_parser():
     parser.add_argument("--opt_name", type=str, default="sgd", help="[adam, sgd]")
     parser.add_argument("--sched_name", type=str, default="cos", help="[cos, anneal]")
     parser.add_argument("--batchsize", type=int, default=128, help="batch size")
-    parser.add_argument("--n_epoch", type=int, default=5, help="Epoch")
+    parser.add_argument("--n_epoch", type=int, default=10, help="Epoch")
 
     parser.add_argument("--n_worker", type=int, default=8, help="The number of workers")
 
-    parser.add_argument("--lr", type=float, default=0.1, help="learning rate")
+    parser.add_argument("--lr", type=float, default=0.01, help="learning rate")
     parser.add_argument(
         "--initial_annealing_period",
         type=int,
