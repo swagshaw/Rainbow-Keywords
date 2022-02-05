@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import tqdm
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -106,8 +107,8 @@ class Finetune:
         #         self.feature_extractor, self.feature_size, self.num_learning_class
         #     )
 
-        in_features = self.model.fc.in_features
-        out_features = self.model.fc.out_features
+        in_features = self.model.tc_resnet.channels[-1]
+        out_features = self.model.tc_resnet.out_features
         # To care the case of decreasing head
         new_out_features = max(out_features, self.num_learning_class)
         if init_model:
@@ -152,14 +153,6 @@ class Finetune:
             else:
                 if self.mem_manage == "random":
                     self.memory_list = self.rnd_sampling(candidates)
-                elif self.mem_manage == "reservoir":
-                    self.reservoir_sampling(self.streamed_list)
-                elif self.mem_manage == "prototype":
-                    self.memory_list = self.mean_feature_sampling(
-                        exemplars=self.memory_list,
-                        samples=self.streamed_list,
-                        num_class=num_class,
-                    )
                 elif self.mem_manage == "uncertainty":
                     if cur_iter == 0:
                         self.memory_list = self.equal_class_sampling(
@@ -191,6 +184,7 @@ class Finetune:
             train_dataset = SpeechDataset(
                 pd.DataFrame(train_list),
                 dataset=self.dataset,
+                is_training=True
             )
             # drop last becasue of BatchNorm1D in IcarlNet
             train_loader = DataLoader(
@@ -205,7 +199,7 @@ class Finetune:
             test_dataset = SpeechDataset(
                 pd.DataFrame(test_list),
                 dataset=self.dataset,
-
+                is_training=False
             )
             test_loader = DataLoader(
                 test_dataset, shuffle=False, batch_size=batch_size, num_workers=n_worker
@@ -278,16 +272,17 @@ class Finetune:
     ):
         total_loss, correct, num_data = 0.0, 0.0, 0.0
         self.model.train()
-        for i, data in enumerate(train_loader):
+        for i, data in enumerate(tqdm.tqdm(train_loader)):
             for pass_ in range(n_passes):
-                x = data["image"]
+                x = data["waveform"]
                 y = data["label"]
                 x = x.to(self.device)
                 y = y.to(self.device)
 
                 optimizer.zero_grad()
 
-                do_cutmix = self.cutmix and np.random.rand(1) < 0.5
+                # do_cutmix = self.cutmix and np.random.rand(1) < 0.5
+                do_cutmix = False
                 if do_cutmix:
                     x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
                     logit = self.model(x)
@@ -314,6 +309,7 @@ class Finetune:
         test_dataset = SpeechDataset(
             pd.DataFrame(test_list),
             dataset=self.dataset,
+            is_training=False
         )
         test_loader = DataLoader(
             test_dataset, shuffle=False, batch_size=32, num_workers=2
@@ -331,7 +327,7 @@ class Finetune:
         self.model.eval()
         with torch.no_grad():
             for i, data in enumerate(test_loader):
-                x = data["image"]
+                x = data["waveform"]
                 y = data["label"]
                 x = x.to(self.device)
                 y = y.to(self.device)

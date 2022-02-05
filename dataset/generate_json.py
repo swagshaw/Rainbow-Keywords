@@ -59,7 +59,7 @@ def main():
             )
             filename = train_filename
         else:
-            collection_name = "collection/{dataset}_test_rand{rnd}_cls{n_cls}_task{iter}".format(
+            collection_name = "collection/{dataset}_test_rand{rnd}_cls{n_cls}_task{iter}.json".format(
                 dataset=args.dataset, rnd=args.seed, n_cls=args.n_cls, iter=i
             )
             filename = valid_filename
@@ -69,9 +69,9 @@ def main():
         for path in filename:
             category, wave_name = path.split("/")
             if category in class_list:
-                path = os.path.join(data_path, category, wave_name)
+                path = os.path.join(category, wave_name)
                 dataset_list.append([path, category, class_encoding.get(category)])
-        res = [{"class": item[1], "file_name": item[0], "label": item[2]} for item in dataset_list]
+        res = [{"klass": item[1], "file_name": item[0], "label": item[2]} for item in dataset_list]
         print(len(res))
         f.write(json.dumps(res))
         f.close()

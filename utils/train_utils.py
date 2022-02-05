@@ -8,7 +8,7 @@
 import torch_optimizer
 from torch import optim
 
-from model import MFCC_TCResnet, STFT_MLP, MFCC_RNN
+from model import MFCC_TCResnet
 
 
 def select_optimizer(opt_name, lr, model, sched_name="cos"):
@@ -44,18 +44,13 @@ def select_optimizer(opt_name, lr, model, sched_name="cos"):
 def select_model(model_name, total_class_num=None):
     # load the model.
     config = {
-        "tc-resnet8": [16, 24, 32, 48],
-        "tc-resnet14": [16, 24, 24, 32, 32, 48, 48]
+        "tcresnet8": [16, 24, 32, 48],
+        "tcresnet14": [16, 24, 24, 32, 32, 48, 48]
     }
 
-    if model_name == "tc-resnet8":
+    if model_name == "tcresnet8":
         model = MFCC_TCResnet(bins=40, channels=config[model_name], channel_scale=1,
                               num_classes=total_class_num)
-    elif model_name == "stft-mlp":
-        model = STFT_MLP(filter_length=256, hop_length=129, bins=129, num_classes=total_class_num)
-    elif model_name == "rnn":
-        model = MFCC_RNN(n_mfcc=12, sampling_rate=16000,
-                         num_classes=total_class_num)  # sample length for the dataset is 16000.
     else:
         model = None
 

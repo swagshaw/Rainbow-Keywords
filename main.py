@@ -80,7 +80,7 @@ def main():
         logger.info("[2-2] Set environment for the current task")
         method.set_current_dataset(cur_train_datalist, cur_test_datalist)
         # Increment known class for current task iteration.
-        method.before_task(cur_train_datalist, cur_iter, args.init_model, args.init_opt)
+        method.before_task(cur_train_datalist, False, True)
         # The way to handle streamed samles
         logger.info(f"[2-3] Start to train under {args.stream_env}")
         if args.stream_env == "offline":

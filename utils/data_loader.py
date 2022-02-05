@@ -20,7 +20,7 @@ logger = logging.getLogger()
 
 
 class SpeechDataset(Dataset):
-    def __init__(self, data_frame: pd.DataFrame, dataset: str, transform=None):
+    def __init__(self, data_frame: pd.DataFrame, dataset: str, is_training=True, transform=None):
         super(SpeechDataset, self).__init__()
         """
         Args:
@@ -33,7 +33,7 @@ class SpeechDataset(Dataset):
         self.transform = transform
         self.sampling_rate = 16000
         self.sample_length = 16000
-
+        self.is_training = is_training
     def __len__(self):
         return len(self.data_frame)
 
@@ -58,7 +58,7 @@ class SpeechDataset(Dataset):
         file_name = self.data_frame.iloc[idx]["file_name"]
         label = self.data_frame.iloc[idx].get("label", -1)
 
-        audio_path = os.path.join("dataset/data", self.dataset, file_name)
+        audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", file_name)
         waveform = self.load_audio(audio_path)
         if self.transform:
             waveform = self.transform(waveform)
@@ -125,7 +125,7 @@ def get_test_datalist(args, exp_name: str, cur_iter: int) -> List:
             dataset=args.dataset, rnd=args.rnd_seed, n_cls=args.n_cls_a_task, iter=iter_
         )
         datalist += pd.read_json(
-            f"dataset/collection/{collection_name}.json"
+            os.path.join(args.data_root, f"{collection_name}.json")
         ).to_dict(orient="records")
         logger.info(f"[Test ] Get datalist from {collection_name}.json")
 
