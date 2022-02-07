@@ -139,6 +139,7 @@ def main():
     logger.info(f"Total time {duration}, Avg: {duration / args.n_tasks}s")
     logger.info(f'BWT: {np.mean(task_records["bwt_list"])}, std: {np.std(task_records["bwt_list"])}')
     logger.info(f"A_last {A_last} | A_avg {A_avg} | F_last {F_last} | I_last {I_last}")
+    writer.close()
 
 
 if __name__ == "__main__":

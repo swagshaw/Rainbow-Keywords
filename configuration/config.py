@@ -60,7 +60,10 @@ def base_parser():
         default="results",
         help="The path logs are saved. Only for local-machine",
     )
-
+    parser.add_argument(
+        "--neptune", default=True, action='store_true',
+        help="record the experiment into web neptune.ai"
+    )
     # Model
     parser.add_argument(
         "--model_name", type=str, default="tcresnet8", help="[tcresnet8, tcresnet14]"

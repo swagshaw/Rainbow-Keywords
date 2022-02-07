@@ -22,7 +22,7 @@ if __name__ == "__main__":
         parser.add_argument("--gpu", default=1, type=int, help="Number of GPU device")
         parser.add_argument("--log", default=False, action='store_true',
                             help="record the experiment into web neptune.ai")
-        parser.add_argument("--ek", default=False, action='store_true', help="evaluate the CL by keywords")
+        parser.add_argument("--ek", default=True, action='store_true', help="evaluate the CL by keywords")
         parser.add_argument("--dpath", default="./dataset", type=str, help="The path of dataset")
         parser.add_argument("--tqdm", default=False, action='store_true', help="enable terminal tqdm output.")
         parser.add_argument("--model", default="stft", type=str, help="[stft, mfcc]")

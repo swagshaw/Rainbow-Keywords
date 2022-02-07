@@ -10,11 +10,9 @@ import logging
 
 import random
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import tqdm
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -121,16 +119,6 @@ class Finetune:
             else:
                 if self.mem_manage == "random":
                     self.memory_list = self.rnd_sampling(candidates)
-                elif self.mem_manage == "uncertainty":
-                    if cur_iter == 0:
-                        self.memory_list = self.equal_class_sampling(
-                            candidates, num_class
-                        )
-                    else:
-                        self.memory_list = self.uncertainty_sampling(
-                            candidates,
-                            num_class=num_class,
-                        )
                 elif self.mem_manage == "default":
                     self.memory_list = []
                 else:
@@ -140,7 +128,8 @@ class Finetune:
             assert len(self.memory_list) <= self.memory_size
             logger.info("Memory statistic")
             memory_df = pd.DataFrame(self.memory_list)
-            logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
+            if len(self.memory_list) > 0:
+                logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
             # memory update happens only once per task iteratin.
             self.already_mem_update = True
         else:
@@ -274,20 +263,6 @@ class Finetune:
 
         return total_loss / n_batches, correct / num_data
 
-    def evaluation_ext(self, test_list):
-        # evaluation from out of class
-        test_dataset = SpeechDataset(
-            pd.DataFrame(test_list),
-            dataset=self.dataset,
-            is_training=False
-        )
-        test_loader = DataLoader(
-            test_dataset, shuffle=False, batch_size=32, num_workers=2
-        )
-        eval_dict = self.evaluation(test_loader, self.criterion)
-
-        return eval_dict
-
     def evaluation(self, test_loader, criterion):
         total_correct, total_num_data, total_loss = 0.0, 0.0, 0.0
         correct_l = torch.zeros(self.n_classes)
@@ -325,7 +300,7 @@ class Finetune:
         return ret
 
     def _interpret_pred(self, y, pred):
-        # xlable is batch
+        # xlabel is batch
         ret_num_data = torch.zeros(self.n_classes)
         ret_corrects = torch.zeros(self.n_classes)
 
@@ -343,29 +318,3 @@ class Finetune:
     def rnd_sampling(self, samples):
         random.shuffle(samples)
         return samples[: self.memory_size]
-
-    def equal_class_sampling(self, samples, num_class):
-        mem_per_cls = self.memory_size // num_class
-        sample_df = pd.DataFrame(samples)
-        # Warning: assuming the classes were ordered following task number.
-        ret = []
-        for y in range(self.num_learning_class):
-            cls_df = sample_df[sample_df["label"] == y]
-            ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
-                orient="records"
-            )
-
-        num_rest_slots = self.memory_size - len(ret)
-        if num_rest_slots > 0:
-            logger.warning("Fill the unused slots by breaking the equilibrium.")
-            ret += (
-                sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                    .sample(n=num_rest_slots)
-                    .to_dict(orient="records")
-            )
-
-        num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
-        if num_dups > 0:
-            logger.warning(f"Duplicated samples in memory: {num_dups}")
-
-        return ret

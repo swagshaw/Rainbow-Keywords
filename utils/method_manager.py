@@ -27,7 +27,7 @@ def select_method(args, criterion, device,  n_classes):
     else:
         raise NotImplementedError("Choose the args.mode in [finetune, gdumb]")
 
-    logger.info("CIL Scenario: ")
+    logger.info(f"CIL Scenario: {args.mode}")
     print(f"n_tasks: {args.n_tasks}")
     print(f"n_init_cls: {args.n_init_cls}")
     print(f"n_cls_a_task: {args.n_cls_a_task}")
