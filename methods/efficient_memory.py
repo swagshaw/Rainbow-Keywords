@@ -8,7 +8,6 @@
 import logging
 import random
 
-
 import pandas as pd
 import torch
 from torch import nn
@@ -17,7 +16,10 @@ from utils.data_loader import SpeechDataset, cutmix_data
 from torch.utils.tensorboard import SummaryWriter
 
 from utils.train_utils import select_model, select_optimizer
-from audiomentations import Compose, AddGaussianNoise, TimeStretch, PitchShift, Shift
+from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, TimeMask, FrequencyMask, ClippingDistortion
+from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift,  FrequencyMask, ClippingDistortion
+from utils.data_loader import TimeMask
+# from torch_audiomentations import Compose, Gain, PitchShift, PolarityInversion, Shift
 
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
@@ -114,7 +116,7 @@ class EM:
             logger.info("Reset model parameters")
             self.model = select_model(self.model_name, incoming_classes)
         else:
-            self.model.fc = nn.Linear(in_features, new_out_features)
+            self.model.tc_resnet.linear = nn.Linear(in_features, new_out_features)
         self.model = self.model.to(self.device)
         if init_opt:
             # reinitialize the optimizer and scheduler
@@ -164,7 +166,7 @@ class EM:
             logger.info("Memory statistic")
             memory_df = pd.DataFrame(self.memory_list)
             logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
-            # memory update happens only once per task iteratin.
+            # memory update happens only once per task iterating.
             self.already_mem_update = True
         else:
             logger.warning(f"Already updated the memory during this iter ({cur_iter})")
@@ -430,7 +432,7 @@ class EM:
         batch_size = 128
         infer_df = pd.DataFrame(infer_list)
         infer_dataset = SpeechDataset(
-            infer_df, dataset=self.dataset, transform=infer_transform
+            infer_df, dataset=self.dataset, transform=infer_transform, is_training=False
         )
         infer_loader = DataLoader(
             infer_dataset, shuffle=False, batch_size=batch_size, num_workers=8
@@ -453,11 +455,19 @@ class EM:
         logger.info(f"Compute uncertainty by {uncert_metric}!")
         if uncert_metric == "vr":
             transform_cands = [
-                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=0.5),
-                # TimeStretch(min_rate=0.8, max_rate=1.25, p=0.5),
-                PitchShift(min_semitones=-4, max_semitones=4, p=0.5),
-                Shift(min_fraction=-0.5, max_fraction=0.5, p=0.5)
-            ] * 3
+                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
+                PitchShift(min_semitones=-4, max_semitones=4, p=1),
+                Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
+                # TimeMask(min_band_part=0, max_band_part=0.1),
+                # FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
+                # ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
+            ]
+            # transform_cands = [
+            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
+            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
+            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
+            #     PolarityInversion(p=1)
+            # ]
         # elif uncert_metric == "vr_randaug":
         #     for _ in range(12):
         #         transform_cands.append(RandAugment())

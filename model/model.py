@@ -1,8 +1,10 @@
 """
-The TC-ResNet model.
-
-@author huangyz0918
-@date 06/08/2021
+# !/usr/bin/env python
+-*- coding: utf-8 -*-
+@Time    : 2022/2/7 下午10:22
+@Author  : Yang "Jan" Xiao 
+@Description : keyword spotting model TC-ResNet.
+Reference by https://github.com/Doyosae/Temporal-Convolution-Resnet
 """
 
 import torch.nn as nn

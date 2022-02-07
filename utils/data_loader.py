@@ -7,6 +7,7 @@
 """
 import logging.config
 import os
+import random
 from typing import List
 
 import numpy as np
@@ -62,8 +63,11 @@ class SpeechDataset(Dataset):
         audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", file_name)
         waveform = self.load_audio(audio_path)
         if self.transform:
+            # waveform = waveform.unsqueeze(1)
+            # waveform.to("cuda")
             waveform = self.transform(samples=waveform, sample_rate=self.sampling_rate)
             waveform = torch.as_tensor(waveform, dtype=torch.float32)
+            # waveform = waveform.squeeze(1)
         sample["waveform"] = waveform
         sample["label"] = label
         sample["file_name"] = file_name
@@ -172,3 +176,23 @@ def rand_bbox(size, lam):
     bby2 = np.clip(cy + cut_h // 2, 0, H)
 
     return bbx1, bby1, bbx2, bby2
+
+
+class TimeMask:
+    def __init__(self, min_band_part=0.0, max_band_part=0.5):
+        self.min_band_part = min_band_part
+        self.max_band_part = max_band_part
+
+    def __call__(self, samples, sample_rate):
+        num_samples = samples.shape[-1]
+        t = random.randint(
+            int(num_samples * self.min_band_part),
+            int(num_samples * self.max_band_part),
+        )
+        t0 = random.randint(
+            0, num_samples - t
+        )
+        new_samples = samples.clone()
+        mask = torch.zeros(t)
+        new_samples[..., t0: t0 + t] *= mask
+        return new_samples

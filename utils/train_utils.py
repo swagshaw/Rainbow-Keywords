@@ -51,6 +51,9 @@ def select_model(model_name, total_class_num=None):
     if model_name == "tcresnet8":
         model = MFCC_TCResnet(bins=40, channels=config[model_name], channel_scale=1,
                               num_classes=total_class_num)
+    elif model_name == "tcresnet14":
+        model = MFCC_TCResnet(bins=40, channels=config[model_name], channel_scale=1,
+                              num_classes=total_class_num)
     else:
         model = None
 

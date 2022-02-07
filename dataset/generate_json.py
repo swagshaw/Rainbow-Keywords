@@ -9,7 +9,11 @@ import argparse
 import json
 import os
 
-from model import readlines
+
+def readlines(datapath):
+    with open(datapath, 'r') as f:
+        lines = f.read().splitlines()
+    return lines
 
 
 def main():
@@ -20,7 +24,7 @@ def main():
     parser.add_argument("--n_tasks", type=int, default="6", help="The number of tasks")
     parser.add_argument("--n_cls", type=int, default=3, help="The number of class of each task")
     parser.add_argument("--exp_name", type=str, default="disjoint", help="[disjoint, blurry]")
-    parser.add_argument("--mode", type=str, default="test", help="[train, test]")
+    parser.add_argument("--mode", type=str, default="train", help="[train, test]")
     args = parser.parse_args()
     data_path = args.dpath
 
@@ -50,9 +54,10 @@ def main():
     train_filename = readlines(f"{data_path}/splits/train.txt")
     valid_filename = readlines(f"{data_path}/splits/valid.txt")
     total_list = [class_list_0, class_list_1, class_list_2, class_list_3, class_list_4, class_list_5]
-
+    label_list = []
     for i in range(len(total_list)):
         class_list = total_list[i]
+        label_list = label_list+class_list
         if args.mode == 'train':
             collection_name = "collection/{dataset}_{mode}_{exp}_rand{rnd}_cls{n_cls}_task{iter}.json".format(
                 dataset=args.dataset, mode='train', exp=args.exp_name, rnd=args.seed, n_cls=args.n_cls, iter=i
@@ -64,7 +69,7 @@ def main():
             )
             filename = valid_filename
         f = open(collection_name, 'w')
-        class_encoding = {category: index for index, category in enumerate(class_list)}
+        class_encoding = {category: index for index, category in enumerate(label_list)}
         dataset_list = []
         for path in filename:
             category, wave_name = path.split("/")

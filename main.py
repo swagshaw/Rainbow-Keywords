@@ -24,6 +24,9 @@ from utils.method_manager import select_method
 
 def main():
     args = config.base_parser()
+    # args.debug = True
+    if args.debug:
+        args.n_epoch = 1
     # Save file name
     tr_names = ""
     # for trans in args.transforms:  # multiple choices: cutmix, cutout, randaug, autoaug

@@ -86,7 +86,7 @@ class Finetune:
             logger.info("Reset model parameters")
             self.model = select_model(self.model_name, incoming_classes)
         else:
-            self.model.fc = nn.Linear(in_features, new_out_features)
+            self.model.tc_resnet.linear = nn.Linear(in_features, new_out_features)
         self.model = self.model.to(self.device)
         if init_opt:
             # reinitialize the optimizer and scheduler
