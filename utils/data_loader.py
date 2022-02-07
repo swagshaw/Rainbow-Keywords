@@ -34,6 +34,7 @@ class SpeechDataset(Dataset):
         self.sampling_rate = 16000
         self.sample_length = 16000
         self.is_training = is_training
+
     def __len__(self):
         return len(self.data_frame)
 
@@ -61,7 +62,8 @@ class SpeechDataset(Dataset):
         audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", file_name)
         waveform = self.load_audio(audio_path)
         if self.transform:
-            waveform = self.transform(waveform)
+            waveform = self.transform(samples=waveform, sample_rate=self.sampling_rate)
+            waveform = torch.as_tensor(waveform, dtype=torch.float32)
         sample["waveform"] = waveform
         sample["label"] = label
         sample["file_name"] = file_name

@@ -7,7 +7,7 @@
 """
 import logging
 
-
+from methods.efficient_memory import EM
 from methods.finetune import Finetune
 
 
@@ -22,6 +22,13 @@ def select_method(args, criterion, device,  n_classes):
             device=device,
             n_classes=n_classes,
             **kwargs,
+        )
+    elif args.mode == "efficient_memory":
+        method = EM(
+            criterion=criterion,
+            device=device,
+            n_classes=n_classes,
+            **kwargs
         )
 
     else:

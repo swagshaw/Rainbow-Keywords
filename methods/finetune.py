@@ -3,9 +3,9 @@
 -*- coding: utf-8 -*-
 @Time    : 2022/1/25 下午11:06
 @Author  : Yang "Jan" Xiao 
-@Description : base_methods
+@Description : base_methods fine tune and native rehearsal method
 """
-# When we make a new one, we should inherit the Finetune class.
+
 import logging
 
 import random
