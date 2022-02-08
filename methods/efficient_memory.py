@@ -16,7 +16,6 @@ from utils.data_loader import SpeechDataset, cutmix_data
 from torch.utils.tensorboard import SummaryWriter
 
 from utils.train_utils import select_model, select_optimizer
-from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, TimeMask, FrequencyMask, ClippingDistortion
 from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift,  FrequencyMask, ClippingDistortion
 from utils.data_loader import TimeMask
 # from torch_audiomentations import Compose, Gain, PitchShift, PolarityInversion, Shift
@@ -25,20 +24,7 @@ logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
 
 
-class ICaRLNet(nn.Module):
-    def __init__(self, model, feature_size, n_class):
-        super().__init__()
-        self.model = model
-        self.bn = nn.BatchNorm1d(feature_size, momentum=0.01)
-        self.ReLU = nn.ReLU()
-        self.fc = nn.Linear(feature_size, n_class, bias=False)
 
-    def forward(self, x):
-        x = self.model(x)
-        x = self.bn(x)
-        x = self.ReLU(x)
-        x = self.fc(x)
-        return x
 
 
 def cycle(iterable):
@@ -458,9 +444,9 @@ class EM:
                 AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
                 PitchShift(min_semitones=-4, max_semitones=4, p=1),
                 Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
-                # TimeMask(min_band_part=0, max_band_part=0.1),
-                # FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
-                # ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
+                TimeMask(min_band_part=0, max_band_part=0.1),
+                FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
+                ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
             ]
             # transform_cands = [
             #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),

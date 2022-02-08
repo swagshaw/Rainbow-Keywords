@@ -9,12 +9,12 @@ import logging
 
 from methods.efficient_memory import EM
 from methods.finetune import Finetune
-
+from methods.icarl import ICaRL
 
 logger = logging.getLogger()
 
 
-def select_method(args, criterion, device,  n_classes):
+def select_method(args, criterion, device, n_classes):
     kwargs = vars(args)
     if args.mode == "finetune":
         method = Finetune(
@@ -30,9 +30,16 @@ def select_method(args, criterion, device,  n_classes):
             n_classes=n_classes,
             **kwargs
         )
+    elif args.mode == "icarl":
+        method = ICaRL(
+            criterion=criterion,
+            device=device,
+            n_classes=n_classes,
+            **kwargs
+        )
 
     else:
-        raise NotImplementedError("Choose the args.mode in [finetune, gdumb]")
+        raise NotImplementedError("Choose the args.mode in [finetune, icarl, efficient_memory]")
 
     logger.info(f"CIL Scenario: {args.mode}")
     print(f"n_tasks: {args.n_tasks}")
