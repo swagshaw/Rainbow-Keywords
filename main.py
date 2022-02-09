@@ -44,7 +44,7 @@ def main():
 
     writer = SummaryWriter("tensorboard")
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and args.debug is False:
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
@@ -68,6 +68,8 @@ def main():
     start_time = time.time()
     # start to train each tasks
     for cur_iter in range(args.n_tasks):
+        if args.mode == "joint" and cur_iter > 0:
+            return
         print("\n" + "#" * 50)
         print(f"# Task {cur_iter} iteration")
         print("#" * 50 + "\n")
@@ -88,7 +90,7 @@ def main():
         logger.info("[2-2] Set environment for the current task")
         method.set_current_dataset(cur_train_datalist, cur_test_datalist)
         # Increment known class for current task iteration.
-        method.before_task(cur_train_datalist, False, True)
+        method.before_task(datalist=cur_train_datalist, init_model=False, init_opt=True)
         # The way to handle streamed samles
         logger.info(f"[2-3] Start to train under {args.stream_env}")
         if args.stream_env == "offline":

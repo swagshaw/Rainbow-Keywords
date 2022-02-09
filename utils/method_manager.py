@@ -11,6 +11,7 @@ from methods.efficient_memory import EM
 from methods.finetune import Finetune
 from methods.icarl import ICaRL
 from methods.regularization import EWC,RWalk
+from methods.joint import Joint
 logger = logging.getLogger()
 
 
@@ -59,7 +60,13 @@ def select_method(args, criterion, device, n_classes):
             n_classes=n_classes,
             **kwargs,
         )
-
+    elif args.mode == "joint":
+        method = Joint(
+            criterion=criterion,
+            device=device,
+            n_classes=n_classes,
+            **kwargs,
+        )
     else:
         raise NotImplementedError(
             "Choose the args.mode in [finetune,native_rehearsal, icarl, efficient_memory,ewc, rwalk]"
