@@ -4,14 +4,14 @@
 @Time    : 2022/2/8 下午8:08
 @Author  : Yang "Jan" Xiao 
 @Description : icarl
-This code is reffered from following github url.
+This code is referred from following github url.
 https://github.com/donlee90/icarl
 """
 import logging
 import os
 import random
 
-import PIL
+
 import numpy as np
 import pandas as pd
 import torch

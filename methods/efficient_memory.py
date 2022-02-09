@@ -16,15 +16,13 @@ from utils.data_loader import SpeechDataset, cutmix_data
 from torch.utils.tensorboard import SummaryWriter
 
 from utils.train_utils import select_model, select_optimizer
-from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift,  FrequencyMask, ClippingDistortion
+from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
 from utils.data_loader import TimeMask
+
 # from torch_audiomentations import Compose, Gain, PitchShift, PolarityInversion, Shift
 
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
-
-
-
 
 
 def cycle(iterable):
@@ -454,13 +452,8 @@ class EM:
             #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
             #     PolarityInversion(p=1)
             # ]
-        # elif uncert_metric == "vr_randaug":
-        #     for _ in range(12):
-        #         transform_cands.append(RandAugment())
-        # elif uncert_metric == "vr_cutout":
-        #     transform_cands = [Cutout(size=16)] * 12
-        # elif uncert_metric == "vr_autoaug":
-        #     transform_cands = [select_autoaugment(self.dataset)] * 12
+        elif uncert_metric == "vr_timemask":
+            transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
 
         n_transforms = len(transform_cands)
 
