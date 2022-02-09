@@ -45,7 +45,7 @@ class Finetune:
         self.opt_name = kwargs["opt_name"]
         self.sched_name = kwargs["sched_name"]
         self.lr = kwargs["lr"]
-        self.feature_size = kwargs["feature_size"]
+
 
         self.cutmix = "cutmix" in kwargs["transforms"]
 
@@ -62,6 +62,8 @@ class Finetune:
 
         self.already_mem_update = False
         self.mode = kwargs["mode"]
+        if self.mode == "finetune":
+            self.memory_size = 0
 
     def set_current_dataset(self, train_datalist, test_datalist):
         random.shuffle(train_datalist)
