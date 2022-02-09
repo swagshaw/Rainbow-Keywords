@@ -90,7 +90,7 @@ def main():
         logger.info("[2-2] Set environment for the current task")
         method.set_current_dataset(cur_train_datalist, cur_test_datalist)
         # Increment known class for current task iteration.
-        if args.mode == "bic":
+        if args.mode == "bic" or args.mode == "gdumb":
             method.before_task(datalist=cur_train_datalist, init_model=False, init_opt=True, cur_iter=cur_iter)
         else:
             method.before_task(datalist=cur_train_datalist, init_model=False, init_opt=True)
