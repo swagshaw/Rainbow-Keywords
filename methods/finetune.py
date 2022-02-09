@@ -86,7 +86,7 @@ class Finetune:
         if init_model:
             # init model parameters in every iteration
             logger.info("Reset model parameters")
-            self.model = select_model(self.model_name, incoming_classes)
+            self.model = select_model(self.model_name, new_out_features)
         else:
             self.model.tc_resnet.linear = nn.Linear(in_features, new_out_features)
         self.model = self.model.to(self.device)
