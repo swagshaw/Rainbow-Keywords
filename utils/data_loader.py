@@ -176,6 +176,7 @@ def rand_bbox(size, lam):
     bby2 = np.clip(cy + cut_h // 2, 0, H)
 
     return bbx1, bby1, bbx2, bby2
+    # return bbx1, bbx2
 
 
 class TimeMask:
@@ -196,3 +197,37 @@ class TimeMask:
         mask = torch.zeros(t)
         new_samples[..., t0: t0 + t] *= mask
         return new_samples
+
+
+def spec_augmentation(x,
+                      num_time_mask=1,
+                      num_freq_mask=1,
+                      max_time=25,
+                      max_freq=7):
+    """perform spec augmentation
+    Args:
+        x: input feature, T * F 2D
+        num_t_mask: number of time mask to apply
+        num_f_mask: number of freq mask to apply
+        max_t: max width of time mask
+        max_f: max width of freq mask
+    Returns:
+        augmented feature
+    """
+    _, _, max_freq_channel, max_frames = x.size()
+
+    # time mask
+    for i in range(num_time_mask):
+        start = random.randint(0, max_frames - 1)
+        length = random.randint(1, max_time)
+        end = min(max_frames, start + length)
+        x[:, :, :, start:end] = 0
+
+    # freq mask
+    for i in range(num_freq_mask):
+        start = random.randint(0, max_freq_channel - 1)
+        length = random.randint(1, max_freq)
+        end = min(max_freq_channel, start + length)
+        x[:, :, start:end, :] = 0
+
+    return x

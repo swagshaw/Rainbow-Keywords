@@ -1,41 +1,52 @@
 """
 # !/usr/bin/env python
 -*- coding: utf-8 -*-
-@Time    : 2022/2/7 下午4:55
+@Time    : 2022/2/7 下午5:07
 @Author  : Yang "Jan" Xiao 
-@Description : efficient_memory
+@Description : base
 """
+# When we make a new one, we should inherit the Finetune class.
 import logging
+import os
 import random
 
+import PIL
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
+import torch.nn as nn
+from randaugment.randaugment import RandAugment
 from torch.utils.data import DataLoader
-from utils.data_loader import SpeechDataset, cutmix_data
 from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
 
+from utils.data_loader import SpeechDataset
+from utils.data_loader import cutmix_data
 from utils.train_utils import select_model, select_optimizer
-from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
-from utils.data_loader import TimeMask
-
-# from torch_audiomentations import Compose, Gain, PitchShift, PolarityInversion, Shift
 
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
 
 
-def cycle(iterable):
-    # iterate with shuffling
-    while True:
-        for i in iterable:
-            yield i
+class ICaRLNet(nn.Module):
+    def __init__(self, model, feature_size, n_class):
+        super().__init__()
+        self.model = model
+        self.bn = nn.BatchNorm1d(feature_size, momentum=0.01)
+        self.ReLU = nn.ReLU()
+        self.fc = nn.Linear(feature_size, n_class, bias=False)
+
+    def forward(self, x):
+        x = self.model(x)
+        x = self.bn(x)
+        x = self.ReLU(x)
+        x = self.fc(x)
+        return x
 
 
-class EM:
+class Finetune:
     def __init__(
-            self, criterion, device, n_classes, **kwargs
+        self, criterion, device, train_transform, test_transform, n_classes, **kwargs
     ):
         self.num_learned_class = 0
         self.num_learning_class = kwargs["n_init_cls"]
@@ -55,7 +66,9 @@ class EM:
         self.lr = kwargs["lr"]
         self.feature_size = kwargs["feature_size"]
 
+        self.train_transform = train_transform
         self.cutmix = "cutmix" in kwargs["transforms"]
+        self.test_transform = test_transform
 
         self.prev_streamed_list = []
         self.streamed_list = []
@@ -63,19 +76,17 @@ class EM:
         self.memory_list = []
         self.memory_size = kwargs["memory_size"]
         self.mem_manage = kwargs["mem_manage"]
+        if kwargs["mem_manage"] == "default":
+            self.mem_manage = "random"
 
-        self.model = select_model(self.model_name, kwargs["n_init_cls"])
+        self.model = select_model(self.model_name, self.dataset, kwargs["n_init_cls"])
         self.model = self.model.to(self.device)
         self.criterion = self.criterion.to(self.device)
 
         self.already_mem_update = False
+
         self.mode = kwargs["mode"]
 
-        self.batch_size = kwargs["batchsize"]
-        self.n_worker = kwargs["n_worker"]
-        self.exp_env = kwargs["stream_env"]
-        if kwargs["mem_manage"] == "default":
-            self.mem_manage = "uncertainty"
         self.uncert_metric = kwargs["uncert_metric"]
 
     def set_current_dataset(self, train_datalist, test_datalist):
@@ -84,7 +95,7 @@ class EM:
         self.streamed_list = train_datalist
         self.test_list = test_datalist
 
-    def before_task(self, datalist, init_model=False, init_opt=True):
+    def before_task(self, datalist, cur_iter, init_model=False, init_opt=True):
         logger.info("Apply before_task")
         incoming_classes = pd.DataFrame(datalist)["klass"].unique().tolist()
         self.exposed_classes = list(set(self.learned_classes + incoming_classes))
@@ -92,17 +103,28 @@ class EM:
             len(self.exposed_classes), self.num_learning_class
         )
 
-        in_features = self.model.tc_resnet.channels[-1]
-        out_features = self.model.tc_resnet.out_features
+        if self.mem_manage == "prototype":
+            self.model.fc = nn.Linear(self.model.fc.in_features, self.feature_size)
+            self.feature_extractor = self.model
+            self.model = ICaRLNet(
+                self.feature_extractor, self.feature_size, self.num_learning_class
+            )
+
+        in_features = self.model.fc.in_features
+        out_features = self.model.fc.out_features
         # To care the case of decreasing head
         new_out_features = max(out_features, self.num_learning_class)
         if init_model:
             # init model parameters in every iteration
             logger.info("Reset model parameters")
-            self.model = select_model(self.model_name, new_out_features)
+            self.model = select_model(self.model_name, self.dataset, new_out_features)
         else:
-            self.model.tc_resnet.linear = nn.Linear(in_features, new_out_features)
+            self.model.fc = nn.Linear(in_features, new_out_features)
+        self.params = {
+            n: p for n, p in list(self.model.named_parameters())[:-2] if p.requires_grad
+        }  # For regularzation methods
         self.model = self.model.to(self.device)
+
         if init_opt:
             # reinitialize the optimizer and scheduler
             logger.info("Reset the optimizer and scheduler states")
@@ -132,8 +154,17 @@ class EM:
                 self.seen = len(candidates)
                 logger.warning("Candidates < Memory size")
             else:
-
-                if self.mem_manage == "uncertainty":
+                if self.mem_manage == "random":
+                    self.memory_list = self.rnd_sampling(candidates)
+                elif self.mem_manage == "reservoir":
+                    self.reservoir_sampling(self.streamed_list)
+                elif self.mem_manage == "prototype":
+                    self.memory_list = self.mean_feature_sampling(
+                        exemplars=self.memory_list,
+                        samples=self.streamed_list,
+                        num_class=num_class,
+                    )
+                elif self.mem_manage == "uncertainty":
                     if cur_iter == 0:
                         self.memory_list = self.equal_class_sampling(
                             candidates, num_class
@@ -151,7 +182,7 @@ class EM:
             logger.info("Memory statistic")
             memory_df = pd.DataFrame(self.memory_list)
             logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
-            # memory update happens only once per task iterating.
+            # memory update happens only once per task iteratin.
             self.already_mem_update = True
         else:
             logger.warning(f"Already updated the memory during this iter ({cur_iter})")
@@ -164,7 +195,7 @@ class EM:
             train_dataset = SpeechDataset(
                 pd.DataFrame(train_list),
                 dataset=self.dataset,
-                is_training=True
+                transform=self.train_transform,
             )
             # drop last becasue of BatchNorm1D in IcarlNet
             train_loader = DataLoader(
@@ -179,7 +210,7 @@ class EM:
             test_dataset = SpeechDataset(
                 pd.DataFrame(test_list),
                 dataset=self.dataset,
-                is_training=False
+                transform=self.test_transform,
             )
             test_loader = DataLoader(
                 test_dataset, shuffle=False, batch_size=batch_size, num_workers=n_worker
@@ -187,42 +218,25 @@ class EM:
 
         return train_loader, test_loader
 
-    def train(self, cur_iter, n_epoch, batch_size, n_worker, n_passes=0):
-        if len(self.memory_list) > 0:
-            mem_dataset = SpeechDataset(
-                pd.DataFrame(self.memory_list),
-                dataset=self.dataset,
-            )
-            memory_loader = DataLoader(
-                mem_dataset,
-                shuffle=True,
-                batch_size=(batch_size // 2),
-                num_workers=n_worker,
-            )
-            stream_batch_size = batch_size - batch_size // 2
-        else:
-            memory_loader = None
-            stream_batch_size = batch_size
+    def train(self, cur_iter, n_epoch, batch_size, n_worker, n_passes=1):
 
-        # train_list == streamed_list in RM
-        train_list = self.streamed_list
-        test_list = self.test_list
+        train_list = self.streamed_list + self.memory_list
         random.shuffle(train_list)
-        # Configuring a batch with streamed and memory data equally.
+        test_list = self.test_list
         train_loader, test_loader = self.get_dataloader(
-            stream_batch_size, n_worker, train_list, test_list
+            batch_size, n_worker, train_list, test_list
         )
 
         logger.info(f"Streamed samples: {len(self.streamed_list)}")
         logger.info(f"In-memory samples: {len(self.memory_list)}")
-        logger.info(f"Train samples: {len(train_list) + len(self.memory_list)}")
+        logger.info(f"Train samples: {len(train_list)}")
         logger.info(f"Test samples: {len(test_list)}")
 
         # TRAIN
         best_acc = 0.0
         eval_dict = dict()
-        self.model = self.model.to(self.device)
         for epoch in range(n_epoch):
+            # https://github.com/drimpossible/GDumb/blob/master/src/main.py
             # initialize for each task
             if epoch <= 0:  # Warm start of 1 epoch
                 for param_group in self.optimizer.param_groups:
@@ -232,11 +246,20 @@ class EM:
                     param_group["lr"] = self.lr
             else:  # Aand go!
                 self.scheduler.step()
-            train_loss, train_acc = self._train(train_loader=train_loader, memory_loader=memory_loader,
-                                                optimizer=self.optimizer, criterion=self.criterion)
+
+            train_loss, train_acc = self._train(
+                train_loader=train_loader,
+                optimizer=self.optimizer,
+                criterion=self.criterion,
+                epoch=epoch,
+                total_epochs=n_epoch,
+                n_passes=n_passes,
+            )
+
             eval_dict = self.evaluation(
                 test_loader=test_loader, criterion=self.criterion
             )
+
             writer.add_scalar(f"task{cur_iter}/train/loss", train_loss, epoch)
             writer.add_scalar(f"task{cur_iter}/train/acc", train_acc, epoch)
             writer.add_scalar(f"task{cur_iter}/test/loss", eval_dict["avg_loss"], epoch)
@@ -246,7 +269,7 @@ class EM:
             )
 
             logger.info(
-                f"Task {cur_iter} | Epoch {epoch + 1}/{n_epoch} | train_loss {train_loss:.4f} | train_acc {train_acc:.4f} | "
+                f"Task {cur_iter} | Epoch {epoch+1}/{n_epoch} | train_loss {train_loss:.4f} | train_acc {train_acc:.4f} | "
                 f"test_loss {eval_dict['avg_loss']:.4f} | test_acc {eval_dict['avg_acc']:.4f} | "
                 f"lr {self.optimizer.param_groups[0]['lr']:.4f}"
             )
@@ -255,71 +278,55 @@ class EM:
 
         return best_acc, eval_dict
 
-    def update_model(self, x, y, criterion, optimizer):
-        optimizer.zero_grad()
-
-        do_cutmix = self.cutmix and np.random.rand(1) < 0.5
-        if do_cutmix:
-            x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
-            logit = self.model(x)
-            loss = lam * criterion(logit, labels_a) + (1 - lam) * criterion(
-                logit, labels_b
-            )
-        else:
-            logit = self.model(x)
-            loss = criterion(logit, y)
-
-        _, preds = logit.topk(self.topk, 1, True, True)
-
-        loss.backward()
-        optimizer.step()
-        return loss.item(), torch.sum(preds == y.unsqueeze(1)).item(), y.size(0)
-
     def _train(
-            self, train_loader, memory_loader, optimizer, criterion
+        self, train_loader, optimizer, criterion, epoch, total_epochs, n_passes=1
     ):
         total_loss, correct, num_data = 0.0, 0.0, 0.0
-
         self.model.train()
-        if memory_loader is not None and train_loader is not None:
-            data_iterator = zip(train_loader, cycle(memory_loader))
-        elif memory_loader is not None:
-            data_iterator = memory_loader
-        elif train_loader is not None:
-            data_iterator = train_loader
-        else:
-            raise NotImplementedError("None of dataloder is valid")
-
-        for data in data_iterator:
-            if len(data) == 2:
-                stream_data, mem_data = data
-                x = torch.cat([stream_data["waveform"], mem_data["waveform"]])
-                y = torch.cat([stream_data["label"], mem_data["label"]])
-            else:
+        for i, data in enumerate(train_loader):
+            for pass_ in range(n_passes):
                 x = data["waveform"]
                 y = data["label"]
+                x = x.to(self.device)
+                y = y.to(self.device)
 
-            x = x.to(self.device)
-            y = y.to(self.device)
+                optimizer.zero_grad()
 
-            l, c, d = self.update_model(x, y, criterion, optimizer)
-            total_loss += l
-            correct += c
-            num_data += d
+                do_cutmix = self.cutmix and np.random.rand(1) < 0.5
+                if do_cutmix:
+                    x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
+                    logit = self.model(x)
+                    loss = lam * criterion(logit, labels_a) + (1 - lam) * criterion(
+                        logit, labels_b
+                    )
+                else:
+                    logit = self.model(x)
+                    loss = criterion(logit, y)
+                _, preds = logit.topk(self.topk, 1, True, True)
 
-        if train_loader is not None:
-            n_batches = len(train_loader)
-        else:
-            n_batches = len(memory_loader)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+                correct += torch.sum(preds == y.unsqueeze(1)).item()
+                num_data += y.size(0)
+
+        n_batches = len(train_loader)
 
         return total_loss / n_batches, correct / num_data
 
-    def allocate_batch_size(self, n_old_class, n_new_class):
-        new_batch_size = int(
-            self.batch_size * n_new_class / (n_old_class + n_new_class)
+    def evaluation_ext(self, test_list):
+        # evaluation from out of class
+        test_dataset = SpeechDataset(
+            pd.DataFrame(test_list),
+            dataset=self.dataset,
+            transform=self.test_transform,
         )
-        old_batch_size = self.batch_size - new_batch_size
-        return new_batch_size, old_batch_size
+        test_loader = DataLoader(
+            test_dataset, shuffle=False, batch_size=32, num_workers=2
+        )
+        eval_dict = self.evaluation(test_loader, self.criterion)
+
+        return eval_dict
 
     def evaluation(self, test_loader, criterion):
         total_correct, total_num_data, total_loss = 0.0, 0.0, 0.0
@@ -328,7 +335,6 @@ class EM:
         label = []
 
         self.model.eval()
-        self.model.data_augment = False
         with torch.no_grad():
             for i, data in enumerate(test_loader):
                 x = data["waveform"]
@@ -359,7 +365,7 @@ class EM:
         return ret
 
     def _interpret_pred(self, y, pred):
-        # xlabel is batch
+        # xlable is batch
         ret_num_data = torch.zeros(self.n_classes)
         ret_corrects = torch.zeros(self.n_classes)
 
@@ -374,6 +380,125 @@ class EM:
 
         return ret_num_data, ret_corrects
 
+    def rnd_sampling(self, samples):
+        random.shuffle(samples)
+        return samples[: self.memory_size]
+
+    def reservoir_sampling(self, samples):
+        for sample in samples:
+            if len(self.memory_list) < self.memory_size:
+                self.memory_list += [sample]
+            else:
+                j = np.random.randint(0, self.seen)
+                if j < self.memory_size:
+                    self.memory_list[j] = sample
+            self.seen += 1
+
+    def mean_feature_sampling(self, exemplars, samples, num_class):
+        """Prototype sampling
+
+        Args:
+            features ([Tensor]): [features corresponding to the samples]
+            samples ([Datalist]): [datalist for a class]
+
+        Returns:
+            [type]: [Sampled datalist]
+        """
+
+        def _reduce_exemplar_sets(exemplars, mem_per_cls):
+            if len(exemplars) == 0:
+                return exemplars
+
+            exemplar_df = pd.DataFrame(exemplars)
+            ret = []
+            for y in range(self.num_learned_class):
+                cls_df = exemplar_df[exemplar_df["label"] == y]
+                ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
+                    orient="records"
+                )
+
+            num_dups = pd.DataFrame(ret).duplicated().sum()
+            if num_dups > 0:
+                logger.warning(f"Duplicated samples in memory: {num_dups}")
+
+            return ret
+
+        mem_per_cls = self.memory_size // num_class
+        exemplars = _reduce_exemplar_sets(exemplars, mem_per_cls)
+        old_exemplar_df = pd.DataFrame(exemplars)
+
+        new_exemplar_set = []
+        sample_df = pd.DataFrame(samples)
+        for y in range(self.num_learning_class):
+            cls_samples = []
+            cls_exemplars = []
+            if len(sample_df) != 0:
+                cls_samples = sample_df[sample_df["label"] == y].to_dict(
+                    orient="records"
+                )
+            if len(old_exemplar_df) != 0:
+                cls_exemplars = old_exemplar_df[old_exemplar_df["label"] == y].to_dict(
+                    orient="records"
+                )
+
+            if len(cls_exemplars) >= mem_per_cls:
+                new_exemplar_set += cls_exemplars
+                continue
+
+            # Assign old exemplars to the samples
+            cls_samples += cls_exemplars
+            if len(cls_samples) <= mem_per_cls:
+                new_exemplar_set += cls_samples
+                continue
+
+            features = []
+            self.feature_extractor.eval()
+            with torch.no_grad():
+                for data in cls_samples:
+                    image = PIL.Image.open(
+                        os.path.join("dataset", self.dataset, data["file_name"])
+                    ).convert("RGB")
+                    x = self.test_transform(image).to(self.device)
+                    feature = (
+                        self.feature_extractor(x.unsqueeze(0)).detach().cpu().numpy()
+                    )
+                    feature = feature / np.linalg.norm(feature, axis=1)  # Normalize
+                    features.append(feature.squeeze())
+
+            features = np.array(features)
+            logger.debug(f"[Prototype] features: {features.shape}")
+
+            # do not replace the existing class mean
+            if self.class_mean[y] is None:
+                cls_mean = np.mean(features, axis=0)
+                cls_mean /= np.linalg.norm(cls_mean)
+                self.class_mean[y] = cls_mean
+            else:
+                cls_mean = self.class_mean[y]
+            assert cls_mean.ndim == 1
+
+            phi = features
+            mu = cls_mean
+            # select exemplars from the scratch
+            exemplar_features = []
+            num_exemplars = min(mem_per_cls, len(cls_samples))
+            for j in range(num_exemplars):
+                S = np.sum(exemplar_features, axis=0)
+                mu_p = 1.0 / (j + 1) * (phi + S)
+                mu_p = mu_p / np.linalg.norm(mu_p, axis=1, keepdims=True)
+
+                dist = np.sqrt(np.sum((mu - mu_p) ** 2, axis=1))
+                i = np.argmin(dist)
+
+                new_exemplar_set.append(cls_samples[i])
+                exemplar_features.append(phi[i])
+
+                # Avoid to sample the duplicated one.
+                del cls_samples[i]
+                phi = np.delete(phi, i, 0)
+
+        return new_exemplar_set
+
     def uncertainty_sampling(self, samples, num_class):
         """uncertainty based sampling
 
@@ -383,12 +508,9 @@ class EM:
         self.montecarlo(samples, uncert_metric=self.uncert_metric)
 
         sample_df = pd.DataFrame(samples)
-        mem_per_cls = self.memory_size // num_class  # kc: the number of the samples of each class
+        mem_per_cls = self.memory_size // num_class
 
         ret = []
-        """
-        Sampling class by class
-        """
         for i in range(num_class):
             cls_df = sample_df[sample_df["label"] == i]
             if len(cls_df) <= mem_per_cls:
@@ -403,8 +525,8 @@ class EM:
             logger.warning("Fill the unused slots by breaking the equilibrium.")
             ret += (
                 sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                    .sample(n=num_rest_slots)
-                    .to_dict(orient="records")
+                .sample(n=num_rest_slots)
+                .to_dict(orient="records")
             )
 
         num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
@@ -414,19 +536,19 @@ class EM:
         return ret
 
     def _compute_uncert(self, infer_list, infer_transform, uncert_name):
-        batch_size = 128
+        batch_size = 32
         infer_df = pd.DataFrame(infer_list)
         infer_dataset = SpeechDataset(
-            infer_df, dataset=self.dataset, transform=infer_transform, is_training=False
+            infer_df, dataset=self.dataset, transform=infer_transform
         )
         infer_loader = DataLoader(
-            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=8
+            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=2
         )
 
         self.model.eval()
         with torch.no_grad():
             for n_batch, data in enumerate(infer_loader):
-                x = data["waveform"]
+                x = data["image"]
                 x = x.to(self.device)
                 logit = self.model(x)
                 logit = logit.detach().cpu()
@@ -440,26 +562,31 @@ class EM:
         logger.info(f"Compute uncertainty by {uncert_metric}!")
         if uncert_metric == "vr":
             transform_cands = [
-                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
-                PitchShift(min_semitones=-4, max_semitones=4, p=1),
-                Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
-                TimeMask(min_band_part=0, max_band_part=0.1),
-                FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
-                ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
+                Cutout(size=8),
+                Cutout(size=16),
+                Cutout(size=24),
+                Cutout(size=32),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+                transforms.RandomRotation(45),
+                transforms.RandomRotation(90),
+                Invert(),
+                Solarize(v=128),
+                Solarize(v=64),
+                Solarize(v=32),
             ]
-            # transform_cands = [
-            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
-            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
-            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
-            #     PolarityInversion(p=1)
-            # ]
-        elif uncert_metric == "vr_timemask":
-            transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
+        elif uncert_metric == "vr_randaug":
+            for _ in range(12):
+                transform_cands.append(RandAugment())
+        elif uncert_metric == "vr_cutout":
+            transform_cands = [Cutout(size=16)] * 12
+        elif uncert_metric == "vr_autoaug":
+            transform_cands = [select_autoaugment(self.dataset)] * 12
 
         n_transforms = len(transform_cands)
 
         for idx, tr in enumerate(transform_cands):
-            _tr = Compose([tr])
+            _tr = transforms.Compose([tr] + self.test_transform.transforms)
             self._compute_uncert(candidates, _tr, uncert_name=f"uncert_{str(idx)}")
 
         for sample in candidates:
@@ -489,8 +616,8 @@ class EM:
             logger.warning("Fill the unused slots by breaking the equilibrium.")
             ret += (
                 sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                    .sample(n=num_rest_slots)
-                    .to_dict(orient="records")
+                .sample(n=num_rest_slots)
+                .to_dict(orient="records")
             )
 
         num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
