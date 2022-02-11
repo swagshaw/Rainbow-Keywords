@@ -192,6 +192,7 @@ class EM:
             mem_dataset = SpeechDataset(
                 pd.DataFrame(self.memory_list),
                 dataset=self.dataset,
+                is_training=True
             )
             memory_loader = DataLoader(
                 mem_dataset,
@@ -260,7 +261,7 @@ class EM:
 
         do_cutmix = self.cutmix and np.random.rand(1) < 0.5
         if do_cutmix:
-            x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
+            x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=0.5)
             logit = self.model(x)
             loss = lam * criterion(logit, labels_a) + (1 - lam) * criterion(
                 logit, labels_b

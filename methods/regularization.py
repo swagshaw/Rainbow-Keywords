@@ -16,6 +16,8 @@ import torch.nn as nn
 
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
+from utils.data_loader import TimeMask
 
 from utils.data_loader import cutmix_data
 from utils.train_utils import select_model, select_optimizer
@@ -48,10 +50,10 @@ class Regularization:
         self.opt_name = kwargs["opt_name"]
         self.sched_name = kwargs["sched_name"]
         self.lr = kwargs["lr"]
-        self.feature_size = kwargs["feature_size"]
+        # self.feature_size = kwargs["feature_size"]
 
         self.cutmix = "cutmix" in kwargs["transforms"]
-
+        self.uncert_metric = kwargs["uncert_metric"]
         self.prev_streamed_list = []
         self.streamed_list = []
         self.test_list = []
@@ -73,6 +75,8 @@ class Regularization:
         self.regularization_terms = {}
         self.task_count = 0
         self.reg_coef = kwargs["reg_coef"]
+        if self.mode == "rwalk":
+            self.reg_coef = 100
         if kwargs["mem_manage"] == "default":
             self.mem_manage = "reservoir"
         self.online_reg = "online" in kwargs["stream_env"]
@@ -134,6 +138,16 @@ class Regularization:
                     self.memory_list = self.rnd_sampling(candidates)
                 elif self.mem_manage == "reservoir":
                     self.reservoir_sampling(self.streamed_list)
+                elif self.mem_manage == "uncertainty":
+                    if cur_iter == 0:
+                        self.memory_list = self.equal_class_sampling(
+                            candidates, num_class
+                        )
+                    else:
+                        self.memory_list = self.uncertainty_sampling(
+                            candidates,
+                            num_class=num_class,
+                        )
                 else:
                     logger.error("Not implemented memory management")
                     raise NotImplementedError
@@ -161,6 +175,131 @@ class Regularization:
                 if j < self.memory_size:
                     self.memory_list[j] = sample
             self.seen += 1
+
+    def uncertainty_sampling(self, samples, num_class):
+        """uncertainty based sampling
+
+        Args:
+            samples ([list]): [training_list + memory_list]
+        """
+        self.montecarlo(samples, uncert_metric=self.uncert_metric)
+
+        sample_df = pd.DataFrame(samples)
+        mem_per_cls = self.memory_size // num_class  # kc: the number of the samples of each class
+
+        ret = []
+        """
+        Sampling class by class
+        """
+        for i in range(num_class):
+            cls_df = sample_df[sample_df["label"] == i]
+            if len(cls_df) <= mem_per_cls:
+                ret += cls_df.to_dict(orient="records")
+            else:
+                jump_idx = len(cls_df) // mem_per_cls
+                uncertain_samples = cls_df.sort_values(by="uncertainty")[::jump_idx]
+                ret += uncertain_samples[:mem_per_cls].to_dict(orient="records")
+
+        num_rest_slots = self.memory_size - len(ret)
+        if num_rest_slots > 0:
+            logger.warning("Fill the unused slots by breaking the equilibrium.")
+            ret += (
+                sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
+                    .sample(n=num_rest_slots)
+                    .to_dict(orient="records")
+            )
+
+        num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
+        if num_dups > 0:
+            logger.warning(f"Duplicated samples in memory: {num_dups}")
+
+        return ret
+
+    def _compute_uncert(self, infer_list, infer_transform, uncert_name):
+        batch_size = 128
+        infer_df = pd.DataFrame(infer_list)
+        infer_dataset = SpeechDataset(
+            infer_df, dataset=self.dataset, transform=infer_transform, is_training=False
+        )
+        infer_loader = DataLoader(
+            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=8
+        )
+
+        self.model.eval()
+        with torch.no_grad():
+            for n_batch, data in enumerate(infer_loader):
+                x = data["waveform"]
+                x = x.to(self.device)
+                logit = self.model(x)
+                logit = logit.detach().cpu()
+
+                for i, cert_value in enumerate(logit):
+                    sample = infer_list[batch_size * n_batch + i]
+                    sample[uncert_name] = 1 - cert_value
+
+    def montecarlo(self, candidates, uncert_metric="vr"):
+        transform_cands = []
+        logger.info(f"Compute uncertainty by {uncert_metric}!")
+        if uncert_metric == "vr":
+            transform_cands = [
+                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
+                PitchShift(min_semitones=-4, max_semitones=4, p=1),
+                Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
+                TimeMask(min_band_part=0, max_band_part=0.1),
+                FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
+                ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
+            ]
+            # transform_cands = [
+            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
+            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
+            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
+            #     PolarityInversion(p=1)
+            # ]
+        elif uncert_metric == "vr_timemask":
+            transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
+
+        n_transforms = len(transform_cands)
+
+        for idx, tr in enumerate(transform_cands):
+            _tr = Compose([tr])
+            self._compute_uncert(candidates, _tr, uncert_name=f"uncert_{str(idx)}")
+
+        for sample in candidates:
+            self.variance_ratio(sample, n_transforms)
+
+    def variance_ratio(self, sample, cand_length):
+        vote_counter = torch.zeros(sample["uncert_0"].size(0))
+        for i in range(cand_length):
+            top_class = int(torch.argmin(sample[f"uncert_{i}"]))  # uncert argmin.
+            vote_counter[top_class] += 1
+        assert vote_counter.sum() == cand_length
+        sample["uncertainty"] = (1 - vote_counter.max() / cand_length).item()
+
+    def equal_class_sampling(self, samples, num_class):
+        mem_per_cls = self.memory_size // num_class
+        sample_df = pd.DataFrame(samples)
+        # Warning: assuming the classes were ordered following task number.
+        ret = []
+        for y in range(self.num_learning_class):
+            cls_df = sample_df[sample_df["label"] == y]
+            ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
+                orient="records"
+            )
+
+        num_rest_slots = self.memory_size - len(ret)
+        if num_rest_slots > 0:
+            logger.warning("Fill the unused slots by breaking the equilibrium.")
+            ret += (
+                sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
+                    .sample(n=num_rest_slots)
+                    .to_dict(orient="records")
+            )
+
+        num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
+        if num_dups > 0:
+            logger.warning(f"Duplicated samples in memory: {num_dups}")
+
+        return ret
 
     def get_dataloader(self, batch_size, n_worker, train_list, test_list):
         # Loader
@@ -354,8 +493,8 @@ class Regularization:
 
             optimizer.zero_grad()
 
-            # do_cutmix = self.cutmix and np.random.rand(1) < 0.5
-            do_cutmix = False
+            do_cutmix = self.cutmix and np.random.rand(1) < 0.5
+            # do_cutmix = False
             if do_cutmix:
                 x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
                 logit = self.model(x)

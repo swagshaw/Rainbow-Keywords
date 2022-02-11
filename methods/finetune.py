@@ -46,7 +46,6 @@ class Finetune:
         self.sched_name = kwargs["sched_name"]
         self.lr = kwargs["lr"]
 
-
         self.cutmix = "cutmix" in kwargs["transforms"]
 
         self.prev_streamed_list = []
@@ -64,6 +63,8 @@ class Finetune:
         self.mode = kwargs["mode"]
         if self.mode == "finetune":
             self.memory_size = 0
+        if self.mode == "native_rehearsal" and self.mem_manage == "default":
+            self.mem_manage = "random"
 
     def set_current_dataset(self, train_datalist, test_datalist):
         random.shuffle(train_datalist)
@@ -110,7 +111,6 @@ class Finetune:
     def update_memory(self, cur_iter, num_class=None):
         if num_class is None:
             num_class = self.num_learning_class
-
         if not self.already_mem_update:
             logger.info(f"Update memory over {num_class} classes by {self.mem_manage}")
             candidates = self.streamed_list + self.memory_list
