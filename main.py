@@ -31,7 +31,7 @@ def main():
     tr_names = ""
     # for trans in args.transforms:  # multiple choices: cutmix, cutout, randaug, autoaug
     #     tr_names += "_" + trans
-    save_path = f"{args.dataset}/{args.mode}_msz{args.memory_size}_rnd{args.rnd_seed}{tr_names}"
+    save_path = f"{args.dataset}/{args.mode}_{args.mem_manage}_{args.stream_env}_epoch{args.n_epoch}_msz{args.memory_size}_rnd{args.rnd_seed}{tr_names} "
     logging.config.fileConfig("./configuration/logging.conf")
     logger = logging.getLogger()
     os.makedirs(f"logs/{args.dataset}", exist_ok=True)
@@ -106,6 +106,30 @@ def main():
             )
             if args.mode == "joint":
                 logger.info(f"joint accuracy: {task_acc}")
+        elif args.stream_env == "online":
+            # Online Train
+            logger.info("Train over streamed data once")
+            method.train(
+                cur_iter=cur_iter,
+                n_epoch=1,
+                batch_size=args.batchsize,
+                n_worker=args.n_worker,
+            )
+
+            method.update_memory(cur_iter)
+
+            # No stremed training data, train with only memory_list
+            method.set_current_dataset([], cur_test_datalist)
+
+            logger.info("Train over memory")
+            task_acc, eval_dict = method.train(
+                cur_iter=cur_iter,
+                n_epoch=args.n_epoch,
+                batch_size=args.batchsize,
+                n_worker=args.n_worker,
+            )
+
+            method.after_task(cur_iter)
         logger.info("[2-4] Update the information for the current task")
         method.after_task(cur_iter)
         task_records["task_acc"].append(task_acc)
