@@ -9,13 +9,14 @@ import logging.config
 import os
 import random
 from typing import List
-
+import warnings
 import numpy as np
 import pandas as pd
 import torch
 import torchaudio
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from torchaudio.transforms import MFCC
 
 logger = logging.getLogger()
 
@@ -35,6 +36,8 @@ class SpeechDataset(Dataset):
         self.sampling_rate = 16000
         self.sample_length = 16000
         self.is_training = is_training
+        self.bins = 40
+        self.mfcc = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
 
     def __len__(self):
         return len(self.data_frame)
@@ -45,7 +48,7 @@ class SpeechDataset(Dataset):
             # padding if the audio length is smaller than samping length.
             waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
 
-        if self.is_training == True:
+        if self.is_training:
             pad_length = int(waveform.shape[1] * 0.1)
             waveform = F.pad(waveform, [pad_length, pad_length])
             offset = torch.randint(0, waveform.shape[1] - self.sample_length + 1, size=(1,)).item()
@@ -68,6 +71,11 @@ class SpeechDataset(Dataset):
             waveform = self.transform(samples=waveform, sample_rate=self.sampling_rate)
             waveform = torch.as_tensor(waveform, dtype=torch.float32)
             # waveform = waveform.squeeze(1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            waveform = self.mfcc(waveform)
+        # if self.is_training:
+        #     waveform = spec_augmentation(waveform)
         sample["waveform"] = waveform
         sample["label"] = label
         sample["file_name"] = file_name
@@ -200,8 +208,8 @@ class TimeMask:
 
 
 def spec_augmentation(x,
-                      num_time_mask=1,
-                      num_freq_mask=1,
+                      num_time_mask=2,
+                      num_freq_mask=2,
                       max_time=25,
                       max_freq=7):
     """perform spec augmentation
@@ -214,20 +222,20 @@ def spec_augmentation(x,
     Returns:
         augmented feature
     """
-    _, _, max_freq_channel, max_frames = x.size()
+    _, max_freq_channel, max_frames = x.size()
 
     # time mask
     for i in range(num_time_mask):
         start = random.randint(0, max_frames - 1)
         length = random.randint(1, max_time)
         end = min(max_frames, start + length)
-        x[:, :, :, start:end] = 0
+        x[:, :, start:end] = 0
 
     # freq mask
     for i in range(num_freq_mask):
         start = random.randint(0, max_freq_channel - 1)
         length = random.randint(1, max_freq)
         end = min(max_freq_channel, start + length)
-        x[:, :, start:end, :] = 0
+        x[:, start:end, :] = 0
 
     return x

@@ -10,6 +10,7 @@ Reference by https://github.com/Doyosae/Temporal-Convolution-Resnet
 import torch.nn as nn
 from einops import rearrange
 from torchaudio.transforms import MFCC
+from utils.data_loader import spec_augmentation
 
 
 class Residual(nn.Module):
@@ -94,14 +95,11 @@ class MFCC_TCResnet(nn.Module):
         self.channels = channels
         self.channel_scale = channel_scale
         self.num_classes = num_classes
-        self.mfcc_layer = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
+        # self.mfcc_layer = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
         self.tc_resnet = TCResNet(self.bins, [int(cha * self.channel_scale) for cha in self.channels], self.num_classes)
         self.data_augment = True
 
     def forward(self, waveform):
-        mel_sepctogram = self.mfcc_layer(waveform)
-        logits = self.tc_resnet(mel_sepctogram)
+        # waveform = self.mfcc_layer(waveform)
+        logits = self.tc_resnet(waveform)
         return logits
-
-
-

@@ -20,6 +20,7 @@ import torch.nn.functional as F
 import torchaudio
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torchaudio.transforms import MFCC
 
 from utils.data_loader import cutmix_data
 from utils.train_utils import select_model, select_optimizer
@@ -102,12 +103,13 @@ class BiasCorrection:
             self.bias_layer_list.append(bias_layer)
         self.n_class_a_task = kwargs["n_cls_a_task"]
         self.distilling = kwargs["distilling"]
-        if self.mode == "bic":
-            self.distilling = True
+        # if self.mode == "bic":
+        #     self.distilling = True
 
         self.feature_extractor = self.model
         self.feature_extractor = self.feature_extractor.to(self.device)
         self.sample_length = 16000
+        self.mfcc = MFCC(sample_rate=16000, n_mfcc=40, log_mels=True)
 
     def distillation_loss(self, old_logit, new_logit):
         # new_logit should have same dimension with old_logit.(dimension = n)
@@ -633,6 +635,7 @@ class BiasCorrection:
                     if waveform.shape[1] < self.sample_length:
                         # padding if the audio length is smaller than samping length.
                         waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
+                    waveform = self.mfcc(waveform)
                     waveform = waveform.to(self.device)
                     feature = (
                         self.feature_extractor(waveform.unsqueeze(0)).detach().cpu().numpy()
