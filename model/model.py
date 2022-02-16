@@ -9,8 +9,8 @@ Reference by https://github.com/Doyosae/Temporal-Convolution-Resnet
 
 import torch.nn as nn
 from einops import rearrange
-from torchaudio.transforms import MFCC
-from utils.data_loader import spec_augmentation
+
+
 
 
 class Residual(nn.Module):
@@ -45,7 +45,6 @@ class Residual(nn.Module):
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-
         res = self.residual(inputs)
         out = self.relu(out + res)
         return out
@@ -65,22 +64,21 @@ class TCResNet(nn.Module):
         for in_channels, out_channels in zip(n_channels[0:-1], n_channels[1:]):
             layers.append(Residual(in_channels, out_channels))
         self.layers = nn.Sequential(*layers)
-
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.linear = nn.Linear(n_channels[-1], n_class)
+
 
     def forward(self, inputs):
         """
         Args:
             input
-            [B, 1, H, W] ~ [B, 1, freq, time]
+            [B, 1, F, T] ~ [B, 1, freq, time]
             reshape -> [B, freq, 1, time]
         """
-        B, C, H, W = inputs.shape
-        inputs = rearrange(inputs, "b c f t -> b f c t", c=C, f=H)
+        B, C, F, T = inputs.shape
+        inputs = rearrange(inputs, "b c f t -> b f c t", c=C, f=F)
         out = self.conv(inputs)
         out = self.layers(out)
-
         out = self.pool(out)
         out = out.view(out.shape[0], -1)
         out = self.linear(out)
@@ -95,11 +93,9 @@ class MFCC_TCResnet(nn.Module):
         self.channels = channels
         self.channel_scale = channel_scale
         self.num_classes = num_classes
-        # self.mfcc_layer = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
         self.tc_resnet = TCResNet(self.bins, [int(cha * self.channel_scale) for cha in self.channels], self.num_classes)
         self.data_augment = True
 
     def forward(self, waveform):
-        # waveform = self.mfcc_layer(waveform)
         logits = self.tc_resnet(waveform)
         return logits
