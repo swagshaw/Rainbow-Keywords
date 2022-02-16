@@ -14,13 +14,13 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from utils.data_loader import SpeechDataset, cutmix_data
+from utils.data_augmentation import mixup_data
 from torch.utils.tensorboard import SummaryWriter
 
+from utils.kd_manager import KdManager
 from utils.train_utils import select_model, select_optimizer
 from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
 from utils.data_loader import TimeMask
-
-# from torch_audiomentations import Compose, Gain, PitchShift, PolarityInversion, Shift
 
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
@@ -45,7 +45,7 @@ class EM:
         self.exposed_classes = []
         self.seen = 0
         self.topk = kwargs["topk"]
-
+        self.task_seen = 0
         self.device = device
         self.criterion = criterion
         self.dataset = kwargs["dataset"]
@@ -54,9 +54,17 @@ class EM:
         self.sched_name = kwargs["sched_name"]
         self.lr = kwargs["lr"]
         self.feature_size = kwargs["feature_size"]
-
-        self.cutmix = "cutmix" in kwargs["transforms"]
-
+        self.transform = str(kwargs["transforms"])
+        self.mix = "mixup" in self.transform
+        logger.info(f"Take the transforms from {self.transform}")
+        logger.info(f"mix:{self.mix}")
+        self.spec = "specaug" in self.transform
+        logger.info(f"specaug:{self.spec}")
+        self.LB = "labels_trick" in self.transform
+        logger.info(f"labels_trick:{self.LB}")
+        self.KD = "kd_trick" in self.transform
+        logger.info(f"kd_trick:{self.KD}")
+        self.kd_manager = KdManager()
         self.prev_streamed_list = []
         self.streamed_list = []
         self.test_list = []
@@ -119,6 +127,8 @@ class EM:
         self.learned_classes = self.exposed_classes
         self.num_learned_class = self.num_learning_class
         self.update_memory(cur_iter)
+        if self.KD:
+            self.kd_manager.update_teacher(self.model)
 
     def update_memory(self, cur_iter, num_class=None):
         if num_class is None:
@@ -164,7 +174,8 @@ class EM:
             train_dataset = SpeechDataset(
                 pd.DataFrame(train_list),
                 dataset=self.dataset,
-                is_training=True
+                is_training=True,
+                transform=self.transform
             )
             # drop last becasue of BatchNorm1D in IcarlNet
             train_loader = DataLoader(
@@ -188,11 +199,13 @@ class EM:
         return train_loader, test_loader
 
     def train(self, cur_iter, n_epoch, batch_size, n_worker, n_passes=0):
+        self.task_seen = cur_iter
         if len(self.memory_list) > 0:
             mem_dataset = SpeechDataset(
                 pd.DataFrame(self.memory_list),
                 dataset=self.dataset,
-                is_training=True
+                is_training=True,
+                transform=self.transform
             )
             memory_loader = DataLoader(
                 mem_dataset,
@@ -258,18 +271,40 @@ class EM:
 
     def update_model(self, x, y, criterion, optimizer):
         optimizer.zero_grad()
-
-        do_cutmix = self.cutmix and np.random.rand(1) < 0.5
-        if do_cutmix:
-            x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=0.5)
+        if self.mix:
+            x, labels_a, labels_b, lam = mixup_data(x=x, y=y, alpha=0.5)
             logit = self.model(x)
             loss = lam * criterion(logit, labels_a) + (1 - lam) * criterion(
                 logit, labels_b
             )
+        elif self.LB:
+            labels = y.clone()
+            unq_lbls = labels.unique().sort()[0]
+            for lbl_idx, lbl in enumerate(unq_lbls):
+                labels[labels == lbl] = lbl_idx
+            logit = self.model(x)
+            loss = criterion(logit[:, unq_lbls], labels)
+        elif self.LB and self.mix:
+            x, labels_a, labels_b, lam = mixup_data(x=x, y=y, alpha=0.5)
+            logit = self.model(x)
+            unq_lbls = labels_a.unique().sort()[0]
+            for lbl_idx, lbl in enumerate(unq_lbls):
+                labels_a[labels_a == lbl] = lbl_idx
+            loss_a = lam * criterion(logit[:, unq_lbls], labels_a)
+            unq_lbls = labels_b.unique().sort()[0]
+            for lbl_idx, lbl in enumerate(unq_lbls):
+                labels_b[labels_b == lbl] = lbl_idx
+            loss_b = (1 - lam) * criterion(
+                logit[:, unq_lbls], labels_b
+            )
+            loss = loss_a + loss_b
+
         else:
             logit = self.model(x)
             loss = criterion(logit, y)
-
+        if self.KD:
+            loss = 1 / ((self.task_seen + 1) ** 0.5) * loss + \
+                   (1 - 1 / ((self.task_seen + 1) ** 0.5)) * self.kd_manager.get_kd_loss(logit, x)
         _, preds = logit.topk(self.topk, 1, True, True)
 
         loss.backward()
@@ -448,12 +483,7 @@ class EM:
                 FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
                 ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
             ]
-            # transform_cands = [
-            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
-            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
-            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
-            #     PolarityInversion(p=1)
-            # ]
+
         elif uncert_metric == "vr_timemask":
             transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
 
