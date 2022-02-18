@@ -8,12 +8,12 @@
 import logging
 import random
 
-import numpy as np
 import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from utils.data_loader import SpeechDataset, cutmix_data
+from utils.data_loader import SpeechDataset
+
 from utils.data_augmentation import mixup_data
 from torch.utils.tensorboard import SummaryWriter
 
@@ -298,7 +298,6 @@ class EM:
                 logit[:, unq_lbls], labels_b
             )
             loss = loss_a + loss_b
-
         else:
             logit = self.model(x)
             loss = criterion(logit, y)
