@@ -10,20 +10,24 @@ import logging
 import os
 import random
 
-import PIL
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from randaugment.randaugment import RandAugment
+import torchaudio
+
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
+from torchaudio.transforms import MFCC
+import torch.nn.functional as F
 
+from utils.data_augmentation import mixup_data
 from utils.data_loader import SpeechDataset
-from utils.data_loader import cutmix_data
-from utils.train_utils import select_model, select_optimizer
 
+from utils.train_utils import select_model, select_optimizer
+from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
+from utils.data_loader import TimeMask
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
 
@@ -44,10 +48,11 @@ class ICaRLNet(nn.Module):
         return x
 
 
-class Finetune:
+class BaseMethod:
     def __init__(
-        self, criterion, device, train_transform, test_transform, n_classes, **kwargs
+            self, criterion, device, train_transform, test_transform, n_classes, **kwargs
     ):
+        # Parameters for Dataloader
         self.num_learned_class = 0
         self.num_learning_class = kwargs["n_init_cls"]
         self.n_classes = n_classes
@@ -56,20 +61,39 @@ class Finetune:
         self.exposed_classes = []
         self.seen = 0
         self.topk = kwargs["topk"]
+        self.dataset = kwargs["dataset"]
 
+        # Parameters for Trainer
         self.device = device
         self.criterion = criterion
-        self.dataset = kwargs["dataset"]
-        self.model_name = kwargs["model_name"]
         self.opt_name = kwargs["opt_name"]
         self.sched_name = kwargs["sched_name"]
         self.lr = kwargs["lr"]
-        self.feature_size = kwargs["feature_size"]
+        self.optimizer, self.scheduler = None, None
+        self.criterion = self.criterion.to(self.device)
 
+        # Parameters for Model
+        self.model_name = kwargs["model_name"]
+        self.model = select_model(self.model_name, kwargs["n_init_cls"])
+        self.model = self.model.to(self.device)
+
+        # Parameters for Prototype Sampler
+        self.feature_size = kwargs["feature_size"]
+        self.feature_extractor = None
+        self.mfcc = MFCC(sample_rate=16000, n_mfcc=40, log_mels=True)
+
+        # Parameters for Augmentation
         self.train_transform = train_transform
         self.cutmix = "cutmix" in kwargs["transforms"]
         self.test_transform = test_transform
+        self.transform = str(kwargs["transforms"])
+        self.mix = "mixup" in self.transform
+        logger.info(f"Take the transforms from {self.transform}")
+        logger.info(f"mix:{self.mix}")
+        self.spec = "specaug" in self.transform
+        logger.info(f"specaug:{self.spec}")
 
+        # Parameters for Memory Updating
         self.prev_streamed_list = []
         self.streamed_list = []
         self.test_list = []
@@ -78,15 +102,8 @@ class Finetune:
         self.mem_manage = kwargs["mem_manage"]
         if kwargs["mem_manage"] == "default":
             self.mem_manage = "random"
-
-        self.model = select_model(self.model_name, self.dataset, kwargs["n_init_cls"])
-        self.model = self.model.to(self.device)
-        self.criterion = self.criterion.to(self.device)
-
         self.already_mem_update = False
-
         self.mode = kwargs["mode"]
-
         self.uncert_metric = kwargs["uncert_metric"]
 
     def set_current_dataset(self, train_datalist, test_datalist):
@@ -95,36 +112,31 @@ class Finetune:
         self.streamed_list = train_datalist
         self.test_list = test_datalist
 
-    def before_task(self, datalist, cur_iter, init_model=False, init_opt=True):
+    def before_task(self, datalist, init_model=False, init_opt=True):
         logger.info("Apply before_task")
+        # Confirm incoming classes
         incoming_classes = pd.DataFrame(datalist)["klass"].unique().tolist()
         self.exposed_classes = list(set(self.learned_classes + incoming_classes))
         self.num_learning_class = max(
             len(self.exposed_classes), self.num_learning_class
         )
-
         if self.mem_manage == "prototype":
-            self.model.fc = nn.Linear(self.model.fc.in_features, self.feature_size)
+            self.model.tc_resnet.linear = nn.Linear(self.model.tc_resnet.channels[-1], self.feature_size)
             self.feature_extractor = self.model
             self.model = ICaRLNet(
                 self.feature_extractor, self.feature_size, self.num_learning_class
             )
-
-        in_features = self.model.fc.in_features
-        out_features = self.model.fc.out_features
+        in_features = self.model.tc_resnet.channels[-1]
+        out_features = self.model.tc_resnet.out_features
         # To care the case of decreasing head
         new_out_features = max(out_features, self.num_learning_class)
         if init_model:
             # init model parameters in every iteration
             logger.info("Reset model parameters")
-            self.model = select_model(self.model_name, self.dataset, new_out_features)
+            self.model = select_model(self.model_name, new_out_features)
         else:
-            self.model.fc = nn.Linear(in_features, new_out_features)
-        self.params = {
-            n: p for n, p in list(self.model.named_parameters())[:-2] if p.requires_grad
-        }  # For regularzation methods
+            self.model.tc_resnet.linear = nn.Linear(in_features, new_out_features)
         self.model = self.model.to(self.device)
-
         if init_opt:
             # reinitialize the optimizer and scheduler
             logger.info("Reset the optimizer and scheduler states")
@@ -196,6 +208,7 @@ class Finetune:
                 pd.DataFrame(train_list),
                 dataset=self.dataset,
                 transform=self.train_transform,
+                is_training=True
             )
             # drop last becasue of BatchNorm1D in IcarlNet
             train_loader = DataLoader(
@@ -211,6 +224,7 @@ class Finetune:
                 pd.DataFrame(test_list),
                 dataset=self.dataset,
                 transform=self.test_transform,
+                is_training=False
             )
             test_loader = DataLoader(
                 test_dataset, shuffle=False, batch_size=batch_size, num_workers=n_worker
@@ -241,10 +255,10 @@ class Finetune:
             if epoch <= 0:  # Warm start of 1 epoch
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self.lr * 0.1
-            elif epoch == 1:  # Then set to maxlr
+            elif epoch == 1:  # Then set to max lr
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self.lr
-            else:  # Aand go!
+            else:  # And go!
                 self.scheduler.step()
 
             train_loss, train_acc = self._train(
@@ -269,7 +283,7 @@ class Finetune:
             )
 
             logger.info(
-                f"Task {cur_iter} | Epoch {epoch+1}/{n_epoch} | train_loss {train_loss:.4f} | train_acc {train_acc:.4f} | "
+                f"Task {cur_iter} | Epoch {epoch + 1}/{n_epoch} | train_loss {train_loss:.4f} | train_acc {train_acc:.4f} | "
                 f"test_loss {eval_dict['avg_loss']:.4f} | test_acc {eval_dict['avg_acc']:.4f} | "
                 f"lr {self.optimizer.param_groups[0]['lr']:.4f}"
             )
@@ -279,7 +293,7 @@ class Finetune:
         return best_acc, eval_dict
 
     def _train(
-        self, train_loader, optimizer, criterion, epoch, total_epochs, n_passes=1
+            self, train_loader, optimizer, criterion, epoch, total_epochs, n_passes=1
     ):
         total_loss, correct, num_data = 0.0, 0.0, 0.0
         self.model.train()
@@ -292,9 +306,8 @@ class Finetune:
 
                 optimizer.zero_grad()
 
-                do_cutmix = self.cutmix and np.random.rand(1) < 0.5
-                if do_cutmix:
-                    x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
+                if self.mix:
+                    x, labels_a, labels_b, lam = mixup_data(x=x, y=y, alpha=0.5)
                     logit = self.model(x)
                     loss = lam * criterion(logit, labels_a) + (1 - lam) * criterion(
                         logit, labels_b
@@ -320,6 +333,7 @@ class Finetune:
             pd.DataFrame(test_list),
             dataset=self.dataset,
             transform=self.test_transform,
+            is_training=False
         )
         test_loader = DataLoader(
             test_dataset, shuffle=False, batch_size=32, num_workers=2
@@ -455,12 +469,15 @@ class Finetune:
             self.feature_extractor.eval()
             with torch.no_grad():
                 for data in cls_samples:
-                    image = PIL.Image.open(
-                        os.path.join("dataset", self.dataset, data["file_name"])
-                    ).convert("RGB")
-                    x = self.test_transform(image).to(self.device)
+                    audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", data["file_name"])
+                    waveform, sample_rate = torchaudio.load(audio_path)
+                    if waveform.shape[1] < self.sample_length:
+                        # padding if the audio length is smaller than samping length.
+                        waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
+                    waveform = self.mfcc(waveform)
+                    waveform = waveform.to(self.device)
                     feature = (
-                        self.feature_extractor(x.unsqueeze(0)).detach().cpu().numpy()
+                        self.feature_extractor(waveform.unsqueeze(0)).detach().cpu().numpy()
                     )
                     feature = feature / np.linalg.norm(feature, axis=1)  # Normalize
                     features.append(feature.squeeze())
@@ -508,9 +525,12 @@ class Finetune:
         self.montecarlo(samples, uncert_metric=self.uncert_metric)
 
         sample_df = pd.DataFrame(samples)
-        mem_per_cls = self.memory_size // num_class
+        mem_per_cls = self.memory_size // num_class  # kc: the number of the samples of each class
 
         ret = []
+        """
+        Sampling class by class
+        """
         for i in range(num_class):
             cls_df = sample_df[sample_df["label"] == i]
             if len(cls_df) <= mem_per_cls:
@@ -525,8 +545,8 @@ class Finetune:
             logger.warning("Fill the unused slots by breaking the equilibrium.")
             ret += (
                 sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                .sample(n=num_rest_slots)
-                .to_dict(orient="records")
+                    .sample(n=num_rest_slots)
+                    .to_dict(orient="records")
             )
 
         num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
@@ -536,19 +556,19 @@ class Finetune:
         return ret
 
     def _compute_uncert(self, infer_list, infer_transform, uncert_name):
-        batch_size = 32
+        batch_size = 128
         infer_df = pd.DataFrame(infer_list)
         infer_dataset = SpeechDataset(
-            infer_df, dataset=self.dataset, transform=infer_transform
+            infer_df, dataset=self.dataset, transform=infer_transform, is_training=False
         )
         infer_loader = DataLoader(
-            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=2
+            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=8
         )
 
         self.model.eval()
         with torch.no_grad():
             for n_batch, data in enumerate(infer_loader):
-                x = data["image"]
+                x = data["waveform"]
                 x = x.to(self.device)
                 logit = self.model(x)
                 logit = logit.detach().cpu()
@@ -562,31 +582,26 @@ class Finetune:
         logger.info(f"Compute uncertainty by {uncert_metric}!")
         if uncert_metric == "vr":
             transform_cands = [
-                Cutout(size=8),
-                Cutout(size=16),
-                Cutout(size=24),
-                Cutout(size=32),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomVerticalFlip(),
-                transforms.RandomRotation(45),
-                transforms.RandomRotation(90),
-                Invert(),
-                Solarize(v=128),
-                Solarize(v=64),
-                Solarize(v=32),
+                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
+                PitchShift(min_semitones=-4, max_semitones=4, p=1),
+                Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
+                TimeMask(min_band_part=0, max_band_part=0.1),
+                FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
+                ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
             ]
-        elif uncert_metric == "vr_randaug":
-            for _ in range(12):
-                transform_cands.append(RandAugment())
-        elif uncert_metric == "vr_cutout":
-            transform_cands = [Cutout(size=16)] * 12
-        elif uncert_metric == "vr_autoaug":
-            transform_cands = [select_autoaugment(self.dataset)] * 12
+            # transform_cands = [
+            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
+            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
+            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
+            #     PolarityInversion(p=1)
+            # ]
+        elif uncert_metric == "vr_timemask":
+            transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
 
         n_transforms = len(transform_cands)
 
         for idx, tr in enumerate(transform_cands):
-            _tr = transforms.Compose([tr] + self.test_transform.transforms)
+            _tr = Compose([tr])
             self._compute_uncert(candidates, _tr, uncert_name=f"uncert_{str(idx)}")
 
         for sample in candidates:
@@ -616,8 +631,8 @@ class Finetune:
             logger.warning("Fill the unused slots by breaking the equilibrium.")
             ret += (
                 sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                .sample(n=num_rest_slots)
-                .to_dict(orient="records")
+                    .sample(n=num_rest_slots)
+                    .to_dict(orient="records")
             )
 
         num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
