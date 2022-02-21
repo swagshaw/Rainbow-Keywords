@@ -10,13 +10,15 @@ import os
 import random
 from typing import List
 import warnings
-import numpy as np
+
 import pandas as pd
 import torch
 import torchaudio
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from torchaudio.transforms import MFCC
+
+from utils.data_augmentation import spec_augmentation
 
 logger = logging.getLogger()
 
@@ -37,7 +39,9 @@ class SpeechDataset(Dataset):
         self.sample_length = 16000
         self.is_training = is_training
         self.bins = 40
-        self.mfcc = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.mfcc = MFCC(sample_rate=self.sampling_rate, n_mfcc=self.bins, log_mels=True)
 
     def __len__(self):
         return len(self.data_frame)
@@ -65,17 +69,13 @@ class SpeechDataset(Dataset):
 
         audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", file_name)
         waveform = self.load_audio(audio_path)
-        if self.transform:
-            # waveform = waveform.unsqueeze(1)
-            # waveform.to("cuda")
+        if self.transform and not self.is_training:
             waveform = self.transform(samples=waveform, sample_rate=self.sampling_rate)
             waveform = torch.as_tensor(waveform, dtype=torch.float32)
-            # waveform = waveform.squeeze(1)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            waveform = self.mfcc(waveform)
-        # if self.is_training:
-        #     waveform = spec_augmentation(waveform)
+        waveform = self.mfcc(waveform)
+        if self.transform:
+            if self.is_training and "specaug" in self.transform:
+                waveform = spec_augmentation(waveform)
         sample["waveform"] = waveform
         sample["label"] = label
         sample["file_name"] = file_name
@@ -146,47 +146,6 @@ def get_test_datalist(args, exp_name: str, cur_iter: int) -> List:
     return datalist
 
 
-# from https://github.com/drimpossible/GDumb/blob/74a5e814afd89b19476cd0ea4287d09a7df3c7a8/src/utils.py#L102:5
-def cutmix_data(x, y, alpha=1.0, cutmix_prob=0.5):
-    assert alpha > 0
-    # generate mixed sample
-    lam = np.random.beta(alpha, alpha)
-
-    batch_size = x.size()[0]
-    index = torch.randperm(batch_size)
-
-    if torch.cuda.is_available():
-        index = index.cuda()
-
-    y_a, y_b = y, y[index]
-    bbx1, bby1, bbx2, bby2 = rand_bbox(x.size(), lam)
-    x[:, :, bbx1:bbx2, bby1:bby2] = x[index, :, bbx1:bbx2, bby1:bby2]
-
-    # adjust lambda to exactly match pixel ratio
-    lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (x.size()[-1] * x.size()[-2]))
-    return x, y_a, y_b, lam
-
-
-def rand_bbox(size, lam):
-    W = size[2]
-    H = size[3]
-    cut_rat = np.sqrt(1.0 - lam)
-    cut_w = np.int(W * cut_rat)
-    cut_h = np.int(H * cut_rat)
-
-    # uniform
-    cx = np.random.randint(W)
-    cy = np.random.randint(H)
-
-    bbx1 = np.clip(cx - cut_w // 2, 0, W)
-    bby1 = np.clip(cy - cut_h // 2, 0, H)
-    bbx2 = np.clip(cx + cut_w // 2, 0, W)
-    bby2 = np.clip(cy + cut_h // 2, 0, H)
-
-    return bbx1, bby1, bbx2, bby2
-    # return bbx1, bbx2
-
-
 class TimeMask:
     def __init__(self, min_band_part=0.0, max_band_part=0.5):
         self.min_band_part = min_band_part
@@ -205,37 +164,3 @@ class TimeMask:
         mask = torch.zeros(t)
         new_samples[..., t0: t0 + t] *= mask
         return new_samples
-
-
-def spec_augmentation(x,
-                      num_time_mask=2,
-                      num_freq_mask=2,
-                      max_time=25,
-                      max_freq=7):
-    """perform spec augmentation
-    Args:
-        x: input feature, T * F 2D
-        num_t_mask: number of time mask to apply
-        num_f_mask: number of freq mask to apply
-        max_t: max width of time mask
-        max_f: max width of freq mask
-    Returns:
-        augmented feature
-    """
-    _, max_freq_channel, max_frames = x.size()
-
-    # time mask
-    for i in range(num_time_mask):
-        start = random.randint(0, max_frames - 1)
-        length = random.randint(1, max_time)
-        end = min(max_frames, start + length)
-        x[:, :, start:end] = 0
-
-    # freq mask
-    for i in range(num_freq_mask):
-        start = random.randint(0, max_freq_channel - 1)
-        length = random.randint(1, max_freq)
-        end = min(max_freq_channel, start + length)
-        x[:, start:end, :] = 0
-
-    return x

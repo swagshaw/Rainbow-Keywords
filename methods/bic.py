@@ -5,24 +5,18 @@
 @Author  : Yang "Jan" Xiao 
 @Description : bic
 """
-
 import logging
-import os
-
 import random
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from copy import deepcopy
-import torch.nn.functional as F
-import torchaudio
+
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchaudio.transforms import MFCC
 
-from utils.data_loader import cutmix_data
+from methods.base import BaseMethod
 from utils.train_utils import select_model, select_optimizer
 from utils.data_loader import SpeechDataset
 
@@ -43,51 +37,15 @@ class BiasCorrectionLayer(nn.Module):
         return correction
 
 
-class BiasCorrection:
-    def __init__(
-            self, criterion, device, n_classes, **kwargs
-    ):
+class BiasCorrection(BaseMethod):
+    def __init__(self, criterion, device, n_classes, **kwargs):
         """
         self.valid_list: valid set which is used for training bias correction layer.
         self.memory_list: training set only including old classes. As already mentioned in the paper,
         memory list and valid list are exclusive.
         self.bias_layer_list - the list of bias correction layers. The index of the list means the task number.
         """
-        self.num_learned_class = 0
-        self.num_learning_class = kwargs["n_init_cls"]
-        self.n_classes = n_classes
-        self.learned_classes = []
-        self.class_mean = [None] * n_classes
-        self.exposed_classes = []
-        self.seen = 0
-        self.topk = kwargs["topk"]
-
-        self.device = device
-        self.criterion = criterion
-        self.dataset = kwargs["dataset"]
-        self.model_name = kwargs["model_name"]
-        self.opt_name = kwargs["opt_name"]
-        self.sched_name = kwargs["sched_name"]
-        self.lr = kwargs["lr"]
-
-        self.cutmix = "cutmix" in kwargs["transforms"]
-
-        self.prev_streamed_list = []
-        self.streamed_list = []
-        self.test_list = []
-        self.memory_list = []
-        self.memory_size = kwargs["memory_size"]
-        self.mem_manage = kwargs["mem_manage"]
-
-        self.model = select_model(self.model_name, kwargs["n_init_cls"])
-        self.model = self.model.to(self.device)
-        self.criterion = self.criterion.to(self.device)
-        self.init_cls = kwargs["n_init_cls"]
-        self.already_mem_update = False
-        self.mode = kwargs["mode"]
-        self.prev_model = select_model(
-            self.model_name, kwargs["n_init_cls"]
-        )
+        super().__init__(criterion, device, n_classes, **kwargs)
         self.bias_layer = None
         self.valid_list = []
         if kwargs["mem_manage"] == "default":
@@ -101,15 +59,11 @@ class BiasCorrection:
         for _ in range(self.n_tasks):
             bias_layer = BiasCorrectionLayer().to(self.device)
             self.bias_layer_list.append(bias_layer)
+        self.init_cls = kwargs["n_init_cls"]
         self.n_class_a_task = kwargs["n_cls_a_task"]
         self.distilling = kwargs["distilling"]
-        # if self.mode == "bic":
-        #     self.distilling = True
-
         self.feature_extractor = self.model
         self.feature_extractor = self.feature_extractor.to(self.device)
-        self.sample_length = 16000
-        self.mfcc = MFCC(sample_rate=16000, n_mfcc=40, log_mels=True)
 
     def distillation_loss(self, old_logit, new_logit):
         # new_logit should have same dimension with old_logit.(dimension = n)
@@ -127,7 +81,7 @@ class BiasCorrection:
         """
         n_new_cls = self.n_class_a_task
         n_split = round((input.size(1) - (
-                self.init_cls - n_new_cls)) / n_new_cls)  # TODO: as the task 0 is 12 classes more than the other tasks
+                self.init_cls - n_new_cls)) / n_new_cls)
         out = []
         for i in range(n_split):
             sub_out = input[:,
@@ -152,43 +106,6 @@ class BiasCorrection:
         ret = torch.cat(out, dim=1)
         assert ret.size(1) == input.size(1), f"final out: {ret.size()}, input size: {input.size()}"
         return ret
-
-    def set_current_dataset(self, train_datalist, test_datalist):
-        random.shuffle(train_datalist)
-        self.prev_streamed_list = self.streamed_list
-        self.streamed_list = train_datalist
-        self.test_list = test_datalist
-
-    def get_dataloader(self, batch_size, n_worker, train_list, test_list):
-        # Loader
-        train_loader = None
-        test_loader = None
-        if train_list is not None and len(train_list) > 0:
-            train_dataset = SpeechDataset(
-                pd.DataFrame(train_list),
-                dataset=self.dataset,
-                is_training=True
-            )
-            # drop last becasue of BatchNorm1D in IcarlNet
-            train_loader = DataLoader(
-                train_dataset,
-                shuffle=True,
-                batch_size=batch_size,
-                num_workers=n_worker,
-                drop_last=True,
-            )
-
-        if test_list is not None:
-            test_dataset = SpeechDataset(
-                pd.DataFrame(test_list),
-                dataset=self.dataset,
-                is_training=False
-            )
-            test_loader = DataLoader(
-                test_dataset, shuffle=False, batch_size=batch_size, num_workers=n_worker
-            )
-
-        return train_loader, test_loader
 
     def before_task(self, datalist, init_model=False, init_opt=True, cur_iter=None):
         logger.info("Apply before_task")
@@ -225,43 +142,6 @@ class BiasCorrection:
             n_sample = self.valid_size // len(self.learned_classes)
             logger.info(f"[task {cur_iter}] n_sample: {n_sample} in valid_list")
             self.reduce_correction_examplers(num_sample=n_sample)
-
-    def after_task(self, cur_iter):
-        logger.info("Apply after_task")
-        self.learned_classes = self.exposed_classes
-        self.num_learned_class = self.num_learning_class
-        self.update_memory(cur_iter)
-
-    def update_memory(self, cur_iter, num_class=None):
-        if num_class is None:
-            num_class = self.num_learning_class
-
-        if not self.already_mem_update:
-            logger.info(f"Update memory over {num_class} classes by {self.mem_manage}")
-            candidates = self.streamed_list + self.memory_list
-            if len(candidates) <= self.memory_size:
-                self.memory_list = candidates
-                self.seen = len(candidates)
-                logger.warning("Candidates < Memory size")
-            else:
-                if self.mem_manage == "prototype":
-                    self.memory_list = self.mean_feature_sampling(
-                        exemplars=self.memory_list,
-                        samples=self.streamed_list,
-                        num_class=num_class,
-                    )
-                else:
-                    logger.error("Not implemented memory management")
-                    raise NotImplementedError
-
-            assert len(self.memory_list) <= self.memory_size
-            logger.info("Memory statistic")
-            memory_df = pd.DataFrame(self.memory_list)
-            logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
-            # memory update happens only once per task iterating.
-            self.already_mem_update = True
-        else:
-            logger.warning(f"Already updated the memory during this iter ({cur_iter})")
 
     def reduce_correction_examplers(self, num_sample):
         correction_df = pd.DataFrame(self.valid_list)
@@ -552,127 +432,3 @@ class BiasCorrection:
                     i, layer.linear.weight.item(), layer.linear.bias.item()
                 )
             )
-
-    def _interpret_pred(self, y, pred):
-        # xlabel is batch
-        ret_num_data = torch.zeros(self.n_classes)
-        ret_corrects = torch.zeros(self.n_classes)
-
-        xlabel_cls, xlabel_cnt = y.unique(return_counts=True)
-        for cls_idx, cnt in zip(xlabel_cls, xlabel_cnt):
-            ret_num_data[cls_idx] = cnt
-
-        correct_xlabel = y.masked_select(y == pred)
-        correct_cls, correct_cnt = correct_xlabel.unique(return_counts=True)
-        for cls_idx, cnt in zip(correct_cls, correct_cnt):
-            ret_corrects[cls_idx] = cnt
-
-        return ret_num_data, ret_corrects
-
-    def mean_feature_sampling(self, exemplars, samples, num_class):
-        """Prototype sampling
-
-        Args:
-            features ([Tensor]): [features corresponding to the samples]
-            samples ([Datalist]): [datalist for a class]
-
-        Returns:
-            [type]: [Sampled datalist]
-        """
-
-        def _reduce_exemplar_sets(exemplars, mem_per_cls):
-            if len(exemplars) == 0:
-                return exemplars
-
-            exemplar_df = pd.DataFrame(exemplars)
-            ret = []
-            for y in range(self.num_learned_class):
-                cls_df = exemplar_df[exemplar_df["label"] == y]
-                ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
-                    orient="records"
-                )
-
-            num_dups = pd.DataFrame(ret).duplicated().sum()
-            if num_dups > 0:
-                logger.warning(f"Duplicated samples in memory: {num_dups}")
-
-            return ret
-
-        mem_per_cls = self.memory_size // num_class
-        exemplars = _reduce_exemplar_sets(exemplars, mem_per_cls)
-        old_exemplar_df = pd.DataFrame(exemplars)
-
-        new_exemplar_set = []
-        sample_df = pd.DataFrame(samples)
-        for y in range(self.num_learning_class):
-            cls_samples = []
-            cls_exemplars = []
-            if len(sample_df) != 0:
-                cls_samples = sample_df[sample_df["label"] == y].to_dict(
-                    orient="records"
-                )
-            if len(old_exemplar_df) != 0:
-                cls_exemplars = old_exemplar_df[old_exemplar_df["label"] == y].to_dict(
-                    orient="records"
-                )
-
-            if len(cls_exemplars) >= mem_per_cls:
-                new_exemplar_set += cls_exemplars
-                continue
-
-            # Assign old exemplars to the samples
-            cls_samples += cls_exemplars
-            if len(cls_samples) <= mem_per_cls:
-                new_exemplar_set += cls_samples
-                continue
-
-            features = []
-            self.feature_extractor.eval()
-            with torch.no_grad():
-                for data in cls_samples:
-                    audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", data["file_name"])
-                    waveform, sample_rate = torchaudio.load(audio_path)
-                    if waveform.shape[1] < self.sample_length:
-                        # padding if the audio length is smaller than samping length.
-                        waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
-                    waveform = self.mfcc(waveform)
-                    waveform = waveform.to(self.device)
-                    feature = (
-                        self.feature_extractor(waveform.unsqueeze(0)).detach().cpu().numpy()
-                    )
-                    feature = feature / np.linalg.norm(feature, axis=1)  # Normalize
-                    features.append(feature.squeeze())
-
-            features = np.array(features)
-            logger.debug(f"[Prototype] features: {features.shape}")
-
-            # do not replace the existing class mean
-            if self.class_mean[y] is None:
-                cls_mean = np.mean(features, axis=0)
-                cls_mean /= np.linalg.norm(cls_mean)
-                self.class_mean[y] = cls_mean
-            else:
-                cls_mean = self.class_mean[y]
-            assert cls_mean.ndim == 1
-
-            phi = features
-            mu = cls_mean
-            # select exemplars from the scratch
-            exemplar_features = []
-            num_exemplars = min(mem_per_cls, len(cls_samples))
-            for j in range(num_exemplars):
-                S = np.sum(exemplar_features, axis=0)
-                mu_p = 1.0 / (j + 1) * (phi + S)
-                mu_p = mu_p / np.linalg.norm(mu_p, axis=1, keepdims=True)
-
-                dist = np.sqrt(np.sum((mu - mu_p) ** 2, axis=1))
-                i = np.argmin(dist)
-
-                new_exemplar_set.append(cls_samples[i])
-                exemplar_features.append(phi[i])
-
-                # Avoid to sample the duplicated one.
-                del cls_samples[i]
-                phi = np.delete(phi, i, 0)
-
-        return new_exemplar_set

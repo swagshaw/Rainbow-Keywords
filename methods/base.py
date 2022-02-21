@@ -5,11 +5,10 @@
 @Author  : Yang "Jan" Xiao 
 @Description : base
 """
-# When we make a new one, we should inherit the Finetune class.
+# When we make a new one, we should inherit the BaseMethod class.
 import logging
 import os
 import random
-
 
 import numpy as np
 import pandas as pd
@@ -28,6 +27,7 @@ from utils.data_loader import SpeechDataset
 from utils.train_utils import select_model, select_optimizer
 from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
 from utils.data_loader import TimeMask
+
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
 
@@ -50,7 +50,7 @@ class ICaRLNet(nn.Module):
 
 class BaseMethod:
     def __init__(
-            self, criterion, device, train_transform, test_transform, n_classes, **kwargs
+            self, criterion, device, n_classes, **kwargs
     ):
         # Parameters for Dataloader
         self.num_learned_class = 0
@@ -81,11 +81,9 @@ class BaseMethod:
         self.feature_size = kwargs["feature_size"]
         self.feature_extractor = None
         self.mfcc = MFCC(sample_rate=16000, n_mfcc=40, log_mels=True)
+        self.sample_length = 16000
 
         # Parameters for Augmentation
-        self.train_transform = train_transform
-        self.cutmix = "cutmix" in kwargs["transforms"]
-        self.test_transform = test_transform
         self.transform = str(kwargs["transforms"])
         self.mix = "mixup" in self.transform
         logger.info(f"Take the transforms from {self.transform}")
@@ -193,7 +191,8 @@ class BaseMethod:
             assert len(self.memory_list) <= self.memory_size
             logger.info("Memory statistic")
             memory_df = pd.DataFrame(self.memory_list)
-            logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
+            if len(self.memory_list) > 0:
+                logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
             # memory update happens only once per task iteratin.
             self.already_mem_update = True
         else:
@@ -207,7 +206,6 @@ class BaseMethod:
             train_dataset = SpeechDataset(
                 pd.DataFrame(train_list),
                 dataset=self.dataset,
-                transform=self.train_transform,
                 is_training=True
             )
             # drop last becasue of BatchNorm1D in IcarlNet
@@ -223,7 +221,6 @@ class BaseMethod:
             test_dataset = SpeechDataset(
                 pd.DataFrame(test_list),
                 dataset=self.dataset,
-                transform=self.test_transform,
                 is_training=False
             )
             test_loader = DataLoader(
@@ -332,7 +329,6 @@ class BaseMethod:
         test_dataset = SpeechDataset(
             pd.DataFrame(test_list),
             dataset=self.dataset,
-            transform=self.test_transform,
             is_training=False
         )
         test_loader = DataLoader(
@@ -589,12 +585,6 @@ class BaseMethod:
                 FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
                 ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
             ]
-            # transform_cands = [
-            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
-            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
-            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
-            #     PolarityInversion(p=1)
-            # ]
         elif uncert_metric == "vr_timemask":
             transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
 

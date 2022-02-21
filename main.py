@@ -4,6 +4,7 @@
 @Time    : 2022/2/4 下午10:55
 @Author  : Yang "Jan" Xiao 
 @Description : main script
+
 """
 import logging
 import logging.config
@@ -24,14 +25,17 @@ from utils.method_manager import select_method
 
 def main():
     args = config.base_parser()
-    # args.debug = True
+
+    # args.debug = True # For debug mode
     if args.debug:
         args.n_epoch = 1
+
     # Save file name
     tr_names = ""
-    # for trans in args.transforms:  # multiple choices: cutmix, cutout, randaug, autoaug
-    #     tr_names += "_" + trans
-    save_path = f"{args.dataset}/{args.mode}_{args.mem_manage}_{args.stream_env}_epoch{args.n_epoch}_msz{args.memory_size}_rnd{args.rnd_seed}{tr_names} "
+    for trans in args.transforms:  # multiple choices: cutmix, cutout, randaug, autoaug
+        tr_names += "_" + trans
+    save_path = f"{args.dataset}/{args.mode}_cls{args.n_cls_a_task}_{args.mem_manage}_{args.stream_env}_epoch{args.n_epoch}_lr{args.lr}" \
+                f"_msz{args.memory_size}_rnd{args.rnd_seed}{tr_names} "
     logging.config.fileConfig("./configuration/logging.conf")
     logger = logging.getLogger()
     os.makedirs(f"logs/{args.dataset}", exist_ok=True)
@@ -49,6 +53,7 @@ def main():
     else:
         device = torch.device("cpu")
     logger.info(f"Set the device ({device})")
+
     # Fix the random seeds
     # https://hoya012.github.io/blog/reproducible_pytorch/
     torch.manual_seed(args.rnd_seed)
@@ -56,6 +61,7 @@ def main():
     torch.backends.cudnn.benchmark = False
     np.random.seed(args.rnd_seed)
     random.seed(args.rnd_seed)
+
     logger.info(f"[1] Select a CIL method ({args.mode})")
     criterion = nn.CrossEntropyLoss(reduction="mean")
     n_classes = 30
@@ -73,6 +79,7 @@ def main():
         print("\n" + "#" * 50)
         print(f"# Task {cur_iter} iteration")
         print("#" * 50 + "\n")
+
         logger.info("[2-1] Prepare a datalist for the current task")
         task_acc = 0.0
         eval_dict = dict()
@@ -94,6 +101,7 @@ def main():
             method.before_task(datalist=cur_train_datalist, init_model=False, init_opt=True, cur_iter=cur_iter)
         else:
             method.before_task(datalist=cur_train_datalist, init_model=False, init_opt=True)
+
         # The way to handle streamed samles
         logger.info(f"[2-3] Start to train under {args.stream_env}")
         if args.stream_env == "offline":
@@ -130,6 +138,7 @@ def main():
             )
 
             method.after_task(cur_iter)
+
         logger.info("[2-4] Update the information for the current task")
         method.after_task(cur_iter)
         task_records["task_acc"].append(task_acc)

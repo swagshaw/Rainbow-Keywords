@@ -11,20 +11,18 @@ import logging
 import os
 import random
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
 import torchaudio
 from torch import nn
-from torch.utils.data import DataLoader
-from torchaudio.transforms import MFCC
 
-from utils.data_loader import SpeechDataset, cutmix_data
+from methods.base import BaseMethod
+
 from torch.utils.tensorboard import SummaryWriter
-from utils.train_utils import select_optimizer, select_model
-from audiomentations import Compose, AddGaussianNoise, PitchShift, Shift, FrequencyMask, ClippingDistortion
-from utils.data_loader import TimeMask
+
+from utils.data_augmentation import mixup_data
+from utils.train_utils import select_optimizer
 
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
@@ -46,45 +44,12 @@ class ICaRLNet(nn.Module):
         return x
 
 
-class ICaRL:
-    def __init__(
-            self, criterion, device, n_classes, **kwargs
-    ):
-        self.n_classes = n_classes
-        self.learned_classes = []
-        self.class_mean = [None] * n_classes
-        self.exposed_classes = []
-        self.seen = 0
-        self.topk = kwargs["topk"]
-
-        self.device = device
-        self.criterion = criterion
-        self.dataset = kwargs["dataset"]
-        self.model_name = kwargs["model_name"]
-        self.opt_name = kwargs["opt_name"]
-        self.sched_name = kwargs["sched_name"]
-        self.lr = kwargs["lr"]
-        self.sample_length = 16000
-        self.prev_streamed_list = []
-        self.streamed_list = []
-        self.test_list = []
-        self.memory_list = []
-        self.memory_size = kwargs["memory_size"]
-        self.mem_manage = kwargs["mem_manage"]
-
-        self.model = select_model(self.model_name, kwargs["n_init_cls"])
-        self.model = self.model.to(self.device)
-        self.criterion = self.criterion.to(self.device)
-
-        self.already_mem_update = False
-        self.mode = kwargs["mode"]
-
+class ICaRL(BaseMethod):
+    def __init__(self, criterion, device, n_classes, **kwargs):
+        super().__init__(criterion, device, n_classes, **kwargs)
         self.batch_size = kwargs["batchsize"]
         self.n_worker = kwargs["n_worker"]
         self.exp_env = kwargs["stream_env"]
-
-        self.feature_size = kwargs["feature_size"]
-
         self.model.tc_resnet.linear = nn.Linear(self.model.tc_resnet.channels[-1], self.feature_size)
         self.feature_extractor = self.model
         self.feature_extractor = self.feature_extractor.to(self.device)
@@ -101,51 +66,8 @@ class ICaRL:
         self.compute_means = True
         self.exemplar_means = []
 
-        # Number of classes having been trained from prev iterations.
-        self.num_learned_class = 0
-        # Number of classes being trained
-        self.num_learning_class = 0
-        self.uncert_metric = kwargs["uncert_metric"]
         if kwargs["mem_manage"] == "default":
             self.mem_manage = "prototype"
-        self.mfcc = MFCC(sample_rate=16000, n_mfcc=40, log_mels=True)
-
-    def get_dataloader(self, batch_size, n_worker, train_list, test_list):
-        # Loader
-        train_loader = None
-        test_loader = None
-        if train_list is not None and len(train_list) > 0:
-            train_dataset = SpeechDataset(
-                pd.DataFrame(train_list),
-                dataset=self.dataset,
-                is_training=True
-            )
-            # drop last becasue of BatchNorm1D in IcarlNet
-            train_loader = DataLoader(
-                train_dataset,
-                shuffle=True,
-                batch_size=batch_size,
-                num_workers=n_worker,
-                drop_last=True,
-            )
-
-        if test_list is not None:
-            test_dataset = SpeechDataset(
-                pd.DataFrame(test_list),
-                dataset=self.dataset,
-                is_training=False
-            )
-            test_loader = DataLoader(
-                test_dataset, shuffle=False, batch_size=batch_size, num_workers=n_worker
-            )
-
-        return train_loader, test_loader
-
-    def set_current_dataset(self, train_datalist, test_datalist):
-        random.shuffle(train_datalist)
-        self.prev_streamed_list = self.streamed_list
-        self.streamed_list = train_datalist
-        self.test_list = test_datalist
 
     def before_task(self, datalist, init_model=False, init_opt=True):
         datalist_df = pd.DataFrame(datalist)
@@ -195,53 +117,6 @@ class ICaRL:
 
         self.already_mem_update = False
 
-    def after_task(self, cur_iter):
-        logger.info("Apply after_task")
-        self.learned_classes = self.exposed_classes
-        self.num_learned_class = self.num_learning_class
-        self.update_memory(cur_iter)
-
-    def update_memory(self, cur_iter, num_class=None):
-        if num_class is None:
-            num_class = self.num_learning_class
-
-        if not self.already_mem_update:
-            logger.info(f"Update memory over {num_class} classes by {self.mem_manage}")
-            candidates = self.streamed_list + self.memory_list
-            if len(candidates) <= self.memory_size:
-                self.memory_list = candidates
-                self.seen = len(candidates)
-                logger.warning("Candidates < Memory size")
-            else:
-                if self.mem_manage == "prototype":
-                    self.memory_list = self.mean_feature_sampling(
-                        exemplars=self.memory_list,
-                        samples=self.streamed_list,
-                        num_class=num_class,
-                    )
-                elif self.mem_manage == "uncertainty":
-                    if cur_iter == 0:
-                        self.memory_list = self.equal_class_sampling(
-                            candidates, num_class
-                        )
-                    else:
-                        self.memory_list = self.uncertainty_sampling(
-                            candidates,
-                            num_class=num_class,
-                        )
-                else:
-                    logger.error("Not implemented memory management")
-                    raise NotImplementedError
-
-            assert len(self.memory_list) <= self.memory_size
-            logger.info("Memory statistic")
-            memory_df = pd.DataFrame(self.memory_list)
-            logger.info(f"\n{memory_df.klass.value_counts(sort=True)}")
-            # memory update happens only once per task iterating.
-            self.already_mem_update = True
-        else:
-            logger.warning(f"Already updated the memory during this iter ({cur_iter})")
-
     def classify(self, x):
         """Classify audios by nearest-means-of-exemplars
         Args:
@@ -250,32 +125,22 @@ class ICaRL:
             pred: Tensor of size (batch_size,)
         """
         batch_size = x.size(0)
-
-        # (n_classes, feature_size)
         means = torch.stack(self.exemplar_means)
-        # (batch_size, n_classes, feature_size)
         means = torch.stack([means] * batch_size)
-        # (batch_size, feature_size, n_classes)
         means = means.transpose(1, 2)
-
         self.feature_extractor.eval()
-        # (batch_size, feature_size)
         feature = self.feature_extractor(x)
         for i in range(feature.size(0)):  # Normalize
             feature.data[i] = feature.data[i] / feature.data[i].norm()
-        # (batch_size, feature_size, 1)
         feature = feature.unsqueeze(2)
         # (batch_size, feature_size, n_classes)
         feature = feature.expand_as(means)
-
         # (batch_size, n_classes)
         dists = (feature - means).pow(2).sum(1).squeeze()
-        # _, pred = dists.min(1)
         _, pred = dists.topk(k=self.topk, dim=1, largest=False, sorted=True)
         return pred
 
     def train(self, cur_iter, n_epoch, batch_size, n_worker):
-        # Loader
         train_list = self.streamed_list + self.memory_list
         random.shuffle(train_list)
         test_list = self.test_list
@@ -306,7 +171,6 @@ class ICaRL:
                     file_names = data["file_name"]
                     g = torch.sigmoid(self.icarlnet(waveforms))
                     for i, file_name in enumerate(file_names):
-                        # q[image_name] = g[i].detach().cpu().tolist()
                         q[file_name] = g[i].detach()
 
         # TRAIN
@@ -318,10 +182,10 @@ class ICaRL:
             if epoch <= 0:  # Warm start of 1 epoch
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self.lr * 0.1
-            elif epoch == 1:  # Then set to maxlr
+            elif epoch == 1:  # Then set to max lr
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self.lr
-            else:  # Aand go!
+            else:  # And go!
                 self.scheduler.step()
 
             for i, data in enumerate(train_loader):
@@ -352,15 +216,12 @@ class ICaRL:
                 g = self.icarlnet(x)
 
                 # Classification loss for new classes
-                # loss = torch.zeros(1).to(self.device)
                 cls_loss = 0
                 if new_cls_index.size(0) > 0:
-                    do_cutmix = False
-                    # do_cutmix = self.cutmix and np.random.rand(1) < 0.5
-                    if do_cutmix:
+                    if self.mix:
                         x = x[new_cls_index]
                         y = y[new_cls_index]
-                        x, labels_a, labels_b, lam = cutmix_data(x=x, y=y, alpha=1.0)
+                        x, labels_a, labels_b, lam = mixup_data(x=x, y=y, alpha=0.5)
                         g_ = self.icarlnet(x)
                         cls_loss += lam * self.criterion(g_, labels_a) + (
                                 1 - lam
@@ -500,238 +361,5 @@ class ICaRL:
         logger.info("[icarl_eval] test acc: {acc:.4f}".format(acc=avg_acc))
         cls_acc = (correct_l / (num_data_l + 1e-5)).numpy().tolist()
         ret = {"avg_acc": avg_acc, "cls_acc": cls_acc}
-
-        return ret
-
-    def mean_feature_sampling(self, exemplars, samples, num_class):
-        """Prototype sampling
-
-        Args:
-            features ([Tensor]): [features corresponding to the samples]
-            samples ([Datalist]): [datalist for a class]
-
-        Returns:
-            [type]: [Sampled datalist]
-        """
-
-        def _reduce_exemplar_sets(exemplars, mem_per_cls):
-            if len(exemplars) == 0:
-                return exemplars
-
-            exemplar_df = pd.DataFrame(exemplars)
-            ret = []
-            for y in range(self.num_learned_class):
-                cls_df = exemplar_df[exemplar_df["label"] == y]
-                ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
-                    orient="records"
-                )
-
-            num_dups = pd.DataFrame(ret).duplicated().sum()
-            if num_dups > 0:
-                logger.warning(f"Duplicated samples in memory: {num_dups}")
-
-            return ret
-
-        mem_per_cls = self.memory_size // num_class
-        exemplars = _reduce_exemplar_sets(exemplars, mem_per_cls)
-        old_exemplar_df = pd.DataFrame(exemplars)
-
-        new_exemplar_set = []
-        sample_df = pd.DataFrame(samples)
-        for y in range(self.num_learning_class):
-            cls_samples = []
-            cls_exemplars = []
-            if len(sample_df) != 0:
-                cls_samples = sample_df[sample_df["label"] == y].to_dict(
-                    orient="records"
-                )
-            if len(old_exemplar_df) != 0:
-                cls_exemplars = old_exemplar_df[old_exemplar_df["label"] == y].to_dict(
-                    orient="records"
-                )
-
-            if len(cls_exemplars) >= mem_per_cls:
-                new_exemplar_set += cls_exemplars
-                continue
-
-            # Assign old exemplars to the samples
-            cls_samples += cls_exemplars
-            if len(cls_samples) <= mem_per_cls:
-                new_exemplar_set += cls_samples
-                continue
-
-            features = []
-            self.feature_extractor.eval()
-            with torch.no_grad():
-                for data in cls_samples:
-                    audio_path = os.path.join("/home/xiaoyang/Dev/kws-efficient-cl/dataset/data", data["file_name"])
-                    waveform, sample_rate = torchaudio.load(audio_path)
-                    if waveform.shape[1] < self.sample_length:
-                        # padding if the audio length is smaller than samping length.
-                        waveform = F.pad(waveform, [0, self.sample_length - waveform.shape[1]])
-                    waveform = self.mfcc(waveform)
-                    waveform = waveform.to(self.device)
-                    feature = (
-                        self.feature_extractor(waveform.unsqueeze(0)).detach().cpu().numpy()
-                    )
-                    feature = feature / np.linalg.norm(feature, axis=1)  # Normalize
-                    features.append(feature.squeeze())
-
-            features = np.array(features)
-            logger.debug(f"[Prototype] features: {features.shape}")
-
-            # do not replace the existing class mean
-            if self.class_mean[y] is None:
-                cls_mean = np.mean(features, axis=0)
-                cls_mean /= np.linalg.norm(cls_mean)
-                self.class_mean[y] = cls_mean
-            else:
-                cls_mean = self.class_mean[y]
-            assert cls_mean.ndim == 1
-
-            phi = features
-            mu = cls_mean
-            # select exemplars from the scratch
-            exemplar_features = []
-            num_exemplars = min(mem_per_cls, len(cls_samples))
-            for j in range(num_exemplars):
-                S = np.sum(exemplar_features, axis=0)
-                mu_p = 1.0 / (j + 1) * (phi + S)
-                mu_p = mu_p / np.linalg.norm(mu_p, axis=1, keepdims=True)
-
-                dist = np.sqrt(np.sum((mu - mu_p) ** 2, axis=1))
-                i = np.argmin(dist)
-
-                new_exemplar_set.append(cls_samples[i])
-                exemplar_features.append(phi[i])
-
-                # Avoid to sample the duplicated one.
-                del cls_samples[i]
-                phi = np.delete(phi, i, 0)
-
-        return new_exemplar_set
-
-    def uncertainty_sampling(self, samples, num_class):
-        """uncertainty based sampling
-
-        Args:
-            samples ([list]): [training_list + memory_list]
-        """
-        self.montecarlo(samples, uncert_metric=self.uncert_metric)
-
-        sample_df = pd.DataFrame(samples)
-        mem_per_cls = self.memory_size // num_class  # kc: the number of the samples of each class
-
-        ret = []
-        """
-        Sampling class by class
-        """
-        for i in range(num_class):
-            cls_df = sample_df[sample_df["label"] == i]
-            if len(cls_df) <= mem_per_cls:
-                ret += cls_df.to_dict(orient="records")
-            else:
-                jump_idx = len(cls_df) // mem_per_cls
-                uncertain_samples = cls_df.sort_values(by="uncertainty")[::jump_idx]
-                ret += uncertain_samples[:mem_per_cls].to_dict(orient="records")
-
-        num_rest_slots = self.memory_size - len(ret)
-        if num_rest_slots > 0:
-            logger.warning("Fill the unused slots by breaking the equilibrium.")
-            ret += (
-                sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                    .sample(n=num_rest_slots)
-                    .to_dict(orient="records")
-            )
-
-        num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
-        if num_dups > 0:
-            logger.warning(f"Duplicated samples in memory: {num_dups}")
-
-        return ret
-
-    def _compute_uncert(self, infer_list, infer_transform, uncert_name):
-        batch_size = 128
-        infer_df = pd.DataFrame(infer_list)
-        infer_dataset = SpeechDataset(
-            infer_df, dataset=self.dataset, transform=infer_transform, is_training=False
-        )
-        infer_loader = DataLoader(
-            infer_dataset, shuffle=False, batch_size=batch_size, num_workers=8
-        )
-
-        self.model.eval()
-        with torch.no_grad():
-            for n_batch, data in enumerate(infer_loader):
-                x = data["waveform"]
-                x = x.to(self.device)
-                logit = self.model(x)
-                logit = logit.detach().cpu()
-
-                for i, cert_value in enumerate(logit):
-                    sample = infer_list[batch_size * n_batch + i]
-                    sample[uncert_name] = 1 - cert_value
-
-    def montecarlo(self, candidates, uncert_metric="vr"):
-        transform_cands = []
-        logger.info(f"Compute uncertainty by {uncert_metric}!")
-        if uncert_metric == "vr":
-            transform_cands = [
-                AddGaussianNoise(min_amplitude=0.001, max_amplitude=0.015, p=1),
-                PitchShift(min_semitones=-4, max_semitones=4, p=1),
-                Shift(min_fraction=-0.5, max_fraction=0.5, p=1),
-                TimeMask(min_band_part=0, max_band_part=0.1),
-                FrequencyMask(min_frequency_band=0, max_frequency_band=0.1, p=1),
-                ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=10, p=1)
-            ]
-            # transform_cands = [
-            #     Gain(min_gain_in_db=-15.0, max_gain_in_db=5.0, p=1),
-            #     PitchShift(sample_rate=16000, min_transpose_semitones=-4.0, max_transpose_semitones=4.0, p=1),
-            #     Shift(min_shift=-0.5, max_shift=0.5, p=1),
-            #     PolarityInversion(p=1)
-            # ]
-        elif uncert_metric == "vr_timemask":
-            transform_cands = [TimeMask(min_band_part=0, max_band_part=0.1)] * 12
-
-        n_transforms = len(transform_cands)
-
-        for idx, tr in enumerate(transform_cands):
-            _tr = Compose([tr])
-            self._compute_uncert(candidates, _tr, uncert_name=f"uncert_{str(idx)}")
-
-        for sample in candidates:
-            self.variance_ratio(sample, n_transforms)
-
-    def variance_ratio(self, sample, cand_length):
-        vote_counter = torch.zeros(sample["uncert_0"].size(0))
-        for i in range(cand_length):
-            top_class = int(torch.argmin(sample[f"uncert_{i}"]))  # uncert argmin.
-            vote_counter[top_class] += 1
-        assert vote_counter.sum() == cand_length
-        sample["uncertainty"] = (1 - vote_counter.max() / cand_length).item()
-
-    def equal_class_sampling(self, samples, num_class):
-        mem_per_cls = self.memory_size // num_class
-        sample_df = pd.DataFrame(samples)
-        # Warning: assuming the classes were ordered following task number.
-        ret = []
-        for y in range(self.num_learning_class):
-            cls_df = sample_df[sample_df["label"] == y]
-            ret += cls_df.sample(n=min(mem_per_cls, len(cls_df))).to_dict(
-                orient="records"
-            )
-
-        num_rest_slots = self.memory_size - len(ret)
-        if num_rest_slots > 0:
-            logger.warning("Fill the unused slots by breaking the equilibrium.")
-            ret += (
-                sample_df[~sample_df.file_name.isin(pd.DataFrame(ret).file_name)]
-                    .sample(n=num_rest_slots)
-                    .to_dict(orient="records")
-            )
-
-        num_dups = pd.DataFrame(ret).file_name.duplicated().sum()
-        if num_dups > 0:
-            logger.warning(f"Duplicated samples in memory: {num_dups}")
 
         return ret
