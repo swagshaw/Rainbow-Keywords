@@ -17,8 +17,8 @@ def base_parser():
     parser.add_argument(
         "--mode",
         type=str,
-        default="efficient_memory",
-        help="CIL methods [finetune ,native_rehearsal,joint, rwalk, icarl, efficient_memory, ewc, bic, gdumb]",
+        default="rainbow_keywords",
+        help="CIL methods [finetune ,native_rehearsal,joint, rwalk, icarl, rainbow_keywords, ewc, bic, gdumb]",
     )
     parser.add_argument(
         "--mem_manage",
@@ -103,7 +103,7 @@ def base_parser():
     parser.add_argument(
         "--transforms",
         nargs="*",
-        default=["kd_trick mixup labels_trick"],
+        default=["kd_trick"],
         help="Additional train transforms [mixup, specmix, specaugment,labels_trick,kd_trick]",
     )
 

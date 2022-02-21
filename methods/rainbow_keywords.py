@@ -3,7 +3,7 @@
 -*- coding: utf-8 -*-
 @Time    : 2022/2/7 下午4:55
 @Author  : Yang "Jan" Xiao 
-@Description : efficient_memory
+@Description : rainbow_keywords
 """
 import logging
 import random
@@ -33,7 +33,7 @@ def cycle(iterable):
             yield i
 
 
-class EM(BaseMethod):
+class RK(BaseMethod):
     def __init__(self, criterion, device, n_classes, **kwargs):
 
         super().__init__(criterion, device, n_classes, **kwargs)

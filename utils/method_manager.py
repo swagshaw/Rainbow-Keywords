@@ -7,7 +7,7 @@
 """
 import logging
 
-from methods.efficient_memory import EM
+from methods.rainbow_keywords import RK
 from methods.finetune import Finetune
 from methods.icarl import ICaRL
 from methods.regularization import EWC, RWalk
@@ -34,7 +34,7 @@ def select_method(args, criterion, device, n_classes):
             **kwargs,
         )
     elif args.mode == "efficient_memory":
-        method = EM(
+        method = RK(
             criterion=criterion,
             device=device,
             n_classes=n_classes,
