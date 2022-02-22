@@ -103,8 +103,8 @@ def base_parser():
     parser.add_argument(
         "--transforms",
         nargs="*",
-        default=["kd_trick"],
-        help="Additional train transforms [mixup, specmix, specaugment,labels_trick,kd_trick]",
+        default=["specaugment mixup"],
+        help="Additional train transforms [mixup, specaugment]",
     )
 
     # Benchmark

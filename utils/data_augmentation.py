@@ -5,6 +5,8 @@
 @Author  : Yang "Jan" Xiao 
 @Description : data_augmentation
 """
+import random
+
 import numpy as np
 import torch
 
@@ -30,8 +32,8 @@ def mixup_data(x, y, alpha=1.0, use_cuda=True):
 def spec_augmentation(x,
                       num_time_mask=2,
                       num_freq_mask=2,
-                      max_time=25,
-                      max_freq=7):
+                      max_time=10,
+                      max_freq=12):
     """perform spec augmentation
     Args:
         x: input feature, T * F 2D

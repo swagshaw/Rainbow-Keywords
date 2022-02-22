@@ -33,7 +33,7 @@ def select_method(args, criterion, device, n_classes):
             n_classes=n_classes,
             **kwargs,
         )
-    elif args.mode == "efficient_memory":
+    elif args.mode == "rainbow_keywords":
         method = RK(
             criterion=criterion,
             device=device,
@@ -79,7 +79,7 @@ def select_method(args, criterion, device, n_classes):
     else:
         raise NotImplementedError(
             "Choose the args.mode in "
-            "[finetune, native_rehearsal, icarl, efficient_memory, ewc, rwalk, bic, joint,gdumb]"
+            "[finetune, native_rehearsal, icarl, rainbow_keywords, ewc, rwalk, bic, joint,gdumb]"
         )
 
     logger.info(f"CIL Scenario: {args.mode}")

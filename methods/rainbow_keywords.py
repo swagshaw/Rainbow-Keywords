@@ -21,7 +21,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 from utils.kd_manager import KdManager
 
-
 logger = logging.getLogger()
 writer = SummaryWriter("tensorboard")
 
@@ -181,5 +180,3 @@ class RK(BaseMethod):
         )
         old_batch_size = self.batch_size - new_batch_size
         return new_batch_size, old_batch_size
-
-
