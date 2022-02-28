@@ -4,7 +4,7 @@
 ## Overview of the results of Rainbow Keywords
 Here is a list of continual learning methods available for KWS:
 - Elastic Weight Consolidation (EWC) [[view]](./methods/regularization.py)
-- 
+- Riemannian Walk (RWalk) [[view]](./methods/regularization.py)
 
 The table is shown for last accuracy,last forgetting,and intransigence comparison in Google Speech Command datasets (30 classes GSC split 6 tasks, task 1 has 15 classes)-Online with memory size 500.
 If you want to see more details, see the paper.
