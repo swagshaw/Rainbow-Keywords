@@ -1,10 +1,13 @@
 ## Rainbow Keywords - Official PyTorch Implementation
+
 ## Abstract
+Due to the Deep Learning expanding rapidly, it is very attractive to deploy the deep keyword spotting(KWS) paradigm on edge devices. However, the keyword spotting Model deployed on the edge will front a dynamic and resource-constrained environment. In practice, a keyword spotting system should be capable of incrementally learning about unknown classes in the real world with restrained memory resources. We concentrate on this "online class incremental learning" issue. Current keyword spotting approaches are severely limited due to the constrained nature of available resources on the edge devices and the catastrophic forgetting (CF) issue. To alleviate such an issue, we propose a novel diversity-aware class increment learning method Rainbow Keywords(RK) for effectively managing the memory with limited capacity by leveraging classification uncertainty. With extensive empirical validations on the Google Speech Commands dataset, we demonstrate that the proposed method significantly enhances the accuracy in online class incremental learning setups, exceeding other class incremental learning methods by extensive margins(8.6\%), especially beneath lower memory size circumstances.
 
 ## Overview of the results of Rainbow Keywords
 Here is a list of continual learning methods available for KWS:
 - Elastic Weight Consolidation (EWC) [[view]](./methods/regularization.py)
 - Riemannian Walk (RWalk) [[view]](./methods/regularization.py)
+- Incremental Classifier and Representation Learning(iCaRL) [[view]](./methods/icarl.py)
 
 The table is shown for last accuracy,last forgetting,and intransigence comparison in Google Speech Command datasets (30 classes GSC split 6 tasks, task 1 has 15 classes)-Online with memory size 500.
 If you want to see more details, see the paper.
