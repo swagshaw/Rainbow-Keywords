@@ -97,10 +97,30 @@ In addition, you can also use the `tensorboard` as following command.
 ```angular2html
 tensorboard --logdir tensorboard
 ```
-
+## Citation
+Please cite our paper if it is helpful to your work:
+```tex
+@article{pclkws,
+  author    = {Yizheng Huang and
+               Nana Hou and
+               Nancy F. Chen},
+  title     = {Progressive Continual Learning for Spoken Keyword Spotting},
+  journal   = {CoRR},
+  volume    = {abs/2201.12546},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2201.12546},
+  eprinttype = {arXiv},
+  eprint    = {2201.12546},
+  timestamp = {Wed, 02 Feb 2022 15:00:01 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2201-12546.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
 ## Acknowledgements
-Our implementation refers the source code from the following repositories:
-
+Our implementations use the source code from the following repositories and users:
 - [rainbow-memory](https://github.com/clovaai/rainbow-memory)
 - [online-continual-learning](https://github.com/RaptorMai/online-continual-learning)
 - [icarl](https://github.com/donlee90/icarl)
+- [@huangyz0918](https://github.com/huangyz0918)
+
+
