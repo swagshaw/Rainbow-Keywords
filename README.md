@@ -1,6 +1,6 @@
 ## Rainbow Keywords - Official PyTorch Implementation
 This repository contains the PyTorch implementation for the Paper ["Rainbow Keywords: Efficient Incremental Learning for Online Spoken Keyword Spotting
-"](https://arxiv.org/abs/2203.16361) by Yang Xiao, Nana Hou and Eng Siong Chng.
+"](https://arxiv.org/abs/2203.16361) by [Yang Xiao](https://swagshaw.github.io/), [Nana Hou](https://www.linkedin.com/in/nana-hou-592a80127/?originalSubdomain=sg) and [Eng Siong Chng](https://personal.ntu.edu.sg/aseschng/default.html).
 
 
 If you have any questions on this repository or the related paper, feel free to [create an issue](https://github.com/swagshaw/Rainbow-Keywords/issues/new) or [send me an email](mailto:yxiao009+github@e.ntu.edu.sg). 
