@@ -1,7 +1,7 @@
 ## Rainbow Keywords - Official PyTorch Implementation
 
 ## Abstract
-Due to the Deep Learning expanding rapidly, it is very attractive to deploy the deep keyword spotting(KWS) paradigm on edge devices. However, the keyword spotting Model deployed on the edge will front a dynamic and resource-constrained environment. In practice, a keyword spotting system should be capable of incrementally learning about unknown classes in the real world with restrained memory resources. We concentrate on this "online class incremental learning" issue. Current keyword spotting approaches are severely limited due to the constrained nature of available resources on the edge devices and the catastrophic forgetting (CF) issue. To alleviate such an issue, we propose a novel diversity-aware class increment learning method Rainbow Keywords(RK) for effectively managing the memory with limited capacity by leveraging classification uncertainty. With extensive empirical validations on the Google Speech Commands dataset, we demonstrate that the proposed method significantly enhances the accuracy in online class incremental learning setups, exceeding other class incremental learning methods by extensive margins(8.6\%), especially beneath lower memory size circumstances.
+Catastrophic forgetting is a thorny challenge when updating keyword spotting (KWS) models after deployment. This problem will be more challenging if KWS models are further required for edge devices due to their limited memory. To alleviate such an issue, we propose a novel diversity-aware incremental learning method named Rainbow Keywords (RK). Specifically, the proposed RK approach introduces a diversity-aware sampler to select a diverse set from historical and incoming keywords by calculating classification uncertainty. As a result, the RK approach can incrementally learn new tasks without forgetting prior knowledge. Besides, the RK approach also proposes data augmentation and knowledge distillation loss function for efficient memory management on the edge device. Experimental results show that the proposed RK approach achieves 4.2% absolute improvement in terms of average accuracy over the best baseline on Google Speech Command dataset with less required memory.
 
 ## Overview of the results of Rainbow Keywords
 Here is a list of continual learning methods available for KWS:
@@ -11,18 +11,7 @@ Here is a list of continual learning methods available for KWS:
 - Bias Correction(BiC) [[view]](./methods/bic.py)
 - Rainbow Keywords(RK) [[view]](./methods/)
 
-The table is shown for last accuracy,last forgetting,and intransigence comparison in Google Speech Command datasets (30 classes GSC split 6 tasks, task 1 has 15 classes)-Online with memory size 500.
 If you want to see more details, see the paper.
-
-| Methods   | Accuracy     | Forgetting   | Intransigence |
-|-----------|------------|------------|----------|
-| EWC       | 0.690 | 0.112 | 0.250    |
-| Rwalk     | 0.702 | 0.112 | 0.238    |
-| iCaRL     | 0.636 | 0.290 | 0.304    |
-| Native Rehearsal     | 0.107 | 0.211 | 0.832 |
-| BiC       | 0.713 | 0.093 | 0.227    |
-| **RK w/o DA** | 0.757 | 0.072 | 0.182 |
-| **RK**        |**0.799**|**0.044**|**0.140**|
 
 ## Getting Started
 ### Requirements 
@@ -97,10 +86,30 @@ In addition, you can also use the `tensorboard` as following command.
 ```angular2html
 tensorboard --logdir tensorboard
 ```
-
+## Citation
+Please cite our paper if it is helpful to your work:
+```tex
+@article{pclkws,
+  author    = {Yizheng Huang and
+               Nana Hou and
+               Nancy F. Chen},
+  title     = {Progressive Continual Learning for Spoken Keyword Spotting},
+  journal   = {CoRR},
+  volume    = {abs/2201.12546},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2201.12546},
+  eprinttype = {arXiv},
+  eprint    = {2201.12546},
+  timestamp = {Wed, 02 Feb 2022 15:00:01 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2201-12546.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
 ## Acknowledgements
-Our implementation refers the source code from the following repositories:
-
+Our implementations use the source code from the following repositories and users:
 - [rainbow-memory](https://github.com/clovaai/rainbow-memory)
 - [online-continual-learning](https://github.com/RaptorMai/online-continual-learning)
 - [icarl](https://github.com/donlee90/icarl)
+- [@huangyz0918](https://github.com/huangyz0918)
+
+
