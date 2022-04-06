@@ -1,3 +1,5 @@
+[![LICENSE](https://img.shields.io/badge/license-MIT-green?style=flat-square)](https://github.com/y2l/meta-transfer-learning-tensorflow/blob/master/LICENSE)
+
 ## Rainbow Keywords - Official PyTorch Implementation
 This repository contains the PyTorch implementation for the Paper ["Rainbow Keywords: Efficient Incremental Learning for Online Spoken Keyword Spotting
 "](https://arxiv.org/abs/2203.16361) by [Yang Xiao](https://swagshaw.github.io/), [Nana Hou](https://www.linkedin.com/in/nana-hou-592a80127/?originalSubdomain=sg) and [Eng Siong Chng](https://personal.ntu.edu.sg/aseschng/default.html).
