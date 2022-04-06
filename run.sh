@@ -6,7 +6,7 @@ MODE="rainbow_keywords" # finetune ,native_rehearsal,joint, rwalk, icarl, rainbo
 MEM_MANAGE="default" # default, random, reservoir, uncertainty, prototype.
 RND_SEED=1
 DATASET="gsc" # gsc
-STREAM="online" # offline, online
+STREAM="offline" # offline, online
 EXP="disjoint" # disjoint, blurry10, blurry30
 MEM_SIZE=500 # k={300, 500, 1000}
 TRANS="" # multiple choices: mixup
@@ -33,27 +33,27 @@ FEAT_SIZE=256
 # for BiC
 distilling="" # Normal BiC. If you do not want to use distilling loss, then "".
 
-python main.py --mode native_rehearsal --mem_manage $MEM_MANAGE --exp_name $EXP \
---dataset $DATASET \
---stream_env $STREAM  $INIT_MODEL $INIT_OPT --topk $TOPK \
---n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
---rnd_seed $RND_SEED \
---model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
---lr $LR --batchsize $BATCHSIZE \
---n_worker $N_WORKER --n_epoch $N_EPOCH \
---memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
---feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
-
-python main.py --mode rwalk --mem_manage $MEM_MANAGE --exp_name $EXP \
---dataset $DATASET \
---stream_env $STREAM  $INIT_MODEL $INIT_OPT --topk $TOPK \
---n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
---rnd_seed $RND_SEED \
---model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
---lr $LR --batchsize $BATCHSIZE \
---n_worker $N_WORKER --n_epoch $N_EPOCH \
---memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
---feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
+#python main.py --mode native_rehearsal --mem_manage $MEM_MANAGE --exp_name $EXP \
+#--dataset $DATASET \
+#--stream_env $STREAM  $INIT_MODEL $INIT_OPT --topk $TOPK \
+#--n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
+#--rnd_seed $RND_SEED \
+#--model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
+#--lr $LR --batchsize $BATCHSIZE \
+#--n_worker $N_WORKER --n_epoch $N_EPOCH \
+#--memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
+#--feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
+#
+#python main.py --mode rwalk --mem_manage $MEM_MANAGE --exp_name $EXP \
+#--dataset $DATASET \
+#--stream_env $STREAM  $INIT_MODEL $INIT_OPT --topk $TOPK \
+#--n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
+#--rnd_seed $RND_SEED \
+#--model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
+#--lr $LR --batchsize $BATCHSIZE \
+#--n_worker $N_WORKER --n_epoch $N_EPOCH \
+#--memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
+#--feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
 python main.py --mode ewc --mem_manage $MEM_MANAGE --exp_name $EXP \
 --dataset $DATASET \
@@ -88,15 +88,15 @@ python main.py --mode bic --mem_manage $MEM_MANAGE --exp_name $EXP \
 --memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
-python main.py --mode efficient_memory --mem_manage $MEM_MANAGE --exp_name $EXP \
+python main.py --mode rainbow_keywords --mem_manage $MEM_MANAGE --exp_name $EXP \
 --dataset $DATASET \
---stream_env $STREAM $INIT_MODEL $INIT_OPT --topk $TOPK \
+--stream_env online $INIT_MODEL $INIT_OPT --topk $TOPK \
 --n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
 --rnd_seed $RND_SEED \
 --model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
 --lr $LR --batchsize $BATCHSIZE \
 --n_worker $N_WORKER --n_epoch $N_EPOCH \
---memory_size $MEM_SIZE --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
+--memory_size 1500 --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
 
@@ -159,15 +159,15 @@ python main.py --mode bic --mem_manage $MEM_MANAGE --exp_name $EXP \
 --memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
-python main.py --mode efficient_memory --mem_manage $MEM_MANAGE --exp_name $EXP \
+python main.py --mode rainbow_keywords --mem_manage $MEM_MANAGE --exp_name $EXP \
 --dataset $DATASET \
---stream_env $STREAM $INIT_MODEL $INIT_OPT --topk $TOPK \
+--stream_env online $INIT_MODEL $INIT_OPT --topk $TOPK \
 --n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
 --rnd_seed $RND_SEED \
 --model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
 --lr $LR --batchsize $BATCHSIZE \
 --n_worker $N_WORKER --n_epoch $N_EPOCH \
---memory_size $MEM_SIZE --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
+--memory_size 1500 --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
 N_TASKS=5
@@ -229,14 +229,14 @@ python main.py --mode bic --mem_manage $MEM_MANAGE --exp_name $EXP \
 --memory_size $MEM_SIZE --transform $TRANS --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
-python main.py --mode efficient_memory --mem_manage $MEM_MANAGE --exp_name $EXP \
+python main.py --mode rainbow_keywords --mem_manage $MEM_MANAGE --exp_name $EXP \
 --dataset $DATASET \
---stream_env $STREAM $INIT_MODEL $INIT_OPT --topk $TOPK \
+--stream_env online $INIT_MODEL $INIT_OPT --topk $TOPK \
 --n_tasks $N_TASKS --n_cls_a_task $N_CLS_A_TASK --n_init_cls $N_INIT_CLS \
 --rnd_seed $RND_SEED \
 --model_name $MODEL_NAME --opt_name $OPT_NAME $PRETRAIN --sched_name $SCHED_NAME \
 --lr $LR --batchsize $BATCHSIZE \
 --n_worker $N_WORKER --n_epoch $N_EPOCH \
---memory_size $MEM_SIZE --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
+--memory_size 1500 --transform "kd_trick" --uncert_metric $UNCERT_METRIC \
 --feature_size $FEAT_SIZE $distilling --joint_acc $JOINT_ACC
 
