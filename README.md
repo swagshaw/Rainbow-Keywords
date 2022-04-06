@@ -51,9 +51,9 @@ bash download_gsc.sh
 ```
 
 ### Usage 
-To run the experiments in the paper, you just run `experiment.sh`.
+To run the experiments in the paper, you just run `run.sh`.
 ```angular2html
-bash experiment.sh 
+bash run.sh 
 ```
 For various experiments, you should know the role of each argument. 
 
@@ -102,6 +102,23 @@ Please cite our paper if it is helpful to your work:
   eprint    = {2201.12546},
   timestamp = {Wed, 02 Feb 2022 15:00:01 +0100},
   biburl    = {https://dblp.org/rec/journals/corr/abs-2201-12546.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+@article{rk,
+  author    = {Yang Xiao and
+               Nana Hou and
+               Eng Siong Chng},
+  title     = {Rainbow Keywords: Efficient Incremental Learning for Online Spoken
+               Keyword Spotting},
+  journal   = {CoRR},
+  volume    = {abs/2203.16361},
+  year      = {2022},
+  url       = {https://doi.org/10.48550/arXiv.2203.16361},
+  doi       = {10.48550/arXiv.2203.16361},
+  eprinttype = {arXiv},
+  eprint    = {2203.16361},
+  timestamp = {Mon, 04 Apr 2022 18:01:21 +0200},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2203-16361.bib},
   bibsource = {dblp computer science bibliography, https://dblp.org}
 }
 ```
