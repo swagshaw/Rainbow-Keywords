@@ -95,20 +95,13 @@ tensorboard --logdir tensorboard
 ## Citation
 Please cite our paper if it is helpful to your work:
 ```bibtex
-@article{pclkws,
-  author    = {Yizheng Huang and
-               Nana Hou and
-               Nancy F. Chen},
-  title     = {Progressive Continual Learning for Spoken Keyword Spotting},
-  journal   = {CoRR},
-  volume    = {abs/2201.12546},
-  year      = {2022},
-  url       = {https://arxiv.org/abs/2201.12546},
-  eprinttype = {arXiv},
-  eprint    = {2201.12546},
-  timestamp = {Wed, 02 Feb 2022 15:00:01 +0100},
-  biburl    = {https://dblp.org/rec/journals/corr/abs-2201-12546.bib},
-  bibsource = {dblp computer science bibliography, https://dblp.org}
+@inproceedings{huang2022progressive,
+  title={Progressive Continual Learning for Spoken Keyword Spotting},
+  author={Huang, Yizheng and Hou, Nana and Chen, Nancy F},
+  booktitle={ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  pages={7552--7556},
+  year={2022},
+  organization={IEEE}
 }
 @article{rk,
   author    = {Yang Xiao and
@@ -133,6 +126,6 @@ Our implementations use the source code from the following repositories and user
 - [rainbow-memory](https://github.com/clovaai/rainbow-memory)
 - [online-continual-learning](https://github.com/RaptorMai/online-continual-learning)
 - [icarl](https://github.com/donlee90/icarl)
-- [@huangyz0918](https://github.com/huangyz0918)
+- [kws-continual-learning](https://github.com/huangyz0918/kws-continual-learning)
 
 
