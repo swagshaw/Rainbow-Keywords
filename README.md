@@ -131,4 +131,4 @@ Our implementations use the source code from the following repositories and user
 
 ## License
 
-The project is available as open source under the terms of the [MIT License](./LICENSE.txt).
+The project is available as open source under the terms of the [MIT License](./LICENSE).
