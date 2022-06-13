@@ -129,3 +129,6 @@ Our implementations use the source code from the following repositories and user
 - [kws-continual-learning](https://github.com/huangyz0918/kws-continual-learning)
 
 
+## License
+
+The project is available as open source under the terms of the [MIT License](./LICENSE.txt).
