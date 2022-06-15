@@ -6,6 +6,8 @@ This repository contains the PyTorch implementation for the Paper ["Rainbow Keyw
 
 
 If you have any questions on this repository or the related paper, feel free to [create an issue](https://github.com/swagshaw/Rainbow-Keywords/issues/new) or [send me an email](mailto:yxiao009+github@e.ntu.edu.sg). 
+
+- NEWS：This paper is accepted by INTERSPEECH 2022, Korea.
 ## Abstract
 Catastrophic forgetting is a thorny challenge when updating keyword spotting (KWS) models after deployment. This problem will be more challenging if KWS models are further required for edge devices due to their limited memory. To alleviate such an issue, we propose a novel diversity-aware incremental learning method named Rainbow Keywords (RK). Specifically, the proposed RK approach introduces a diversity-aware sampler to select a diverse set from historical and incoming keywords by calculating classification uncertainty. As a result, the RK approach can incrementally learn new tasks without forgetting prior knowledge. Besides, the RK approach also proposes data augmentation and knowledge distillation loss function for efficient memory management on the edge device. Experimental results show that the proposed RK approach achieves 4.2% absolute improvement in terms of average accuracy over the best baseline on Google Speech Command dataset with less required memory.
 
