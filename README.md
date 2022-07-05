@@ -100,27 +100,15 @@ Please cite our paper if it is helpful to your work:
 @inproceedings{huang2022progressive,
   title={Progressive Continual Learning for Spoken Keyword Spotting},
   author={Huang, Yizheng and Hou, Nana and Chen, Nancy F},
-  booktitle={ICASSP 2022-2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+  booktitle={IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
   pages={7552--7556},
   year={2022},
-  organization={IEEE}
 }
-@article{rk,
-  author    = {Yang Xiao and
-               Nana Hou and
-               Eng Siong Chng},
-  title     = {Rainbow Keywords: Efficient Incremental Learning for Online Spoken
-               Keyword Spotting},
-  journal   = {CoRR},
-  volume    = {abs/2203.16361},
-  year      = {2022},
-  url       = {https://doi.org/10.48550/arXiv.2203.16361},
-  doi       = {10.48550/arXiv.2203.16361},
-  eprinttype = {arXiv},
-  eprint    = {2203.16361},
-  timestamp = {Mon, 04 Apr 2022 18:01:21 +0200},
-  biburl    = {https://dblp.org/rec/journals/corr/abs-2203-16361.bib},
-  bibsource = {dblp computer science bibliography, https://dblp.org}
+@article{xiao2022rainbow,
+  title={Rainbow Keywords: Efficient Incremental Learning for Online Spoken Keyword Spotting},
+  author={Xiao, Yang and Hou, Nana and Chng, Eng Siong},
+  journal={arXiv preprint arXiv:2203.16361},
+  year={2022}
 }
 ```
 ## Acknowledgements
