@@ -40,7 +40,7 @@ You need to create the running environment by [Anaconda](https://www.anaconda.co
 
 ```bash
 conda env create -f environment.yml
-conda active kws
+conda active rk
 ```
 
 If you don't have Anaconda, you can install (Linux version) by
